@@ -133,18 +133,38 @@ Görev kanalında yayınlanmaz — atanan kişilere **DM** olarak gönderilir.
 
 ---
 
-### 5.6 Tekrarlama
+### 5.6 Görev Düzenleme (`/task edit`)
+
+`/task edit <id>` komutu, görevin tüm alanlarını ayrı ayrı düzenleyebileceğin bir embed+buton arayüzü açar.
+
+| Buton | Düzenlenen Alan |
+|-------|----------------|
+| 📝 Başlık/Açıklama | Görev adı ve açıklama metni |
+| 📅 Tarihler | Başlangıç ve bitiş tarihi |
+| 🎯 Gereksinimler | `ses:X`, `mesaj:X`, `partnerlik:X` formatında |
+| ⚡ Öncelik | Düşük / Orta / Yüksek seçim menüsü |
+| 💰 Puan | Ödül puan miktarı |
+| 🎭 Roller | Göreve atanacak roller (rol seçim menüsü) |
+| ⚙️ Diğer | Zorunlu/İsteğe bağlı, Gizli/Açık, XP Limiti, Kategori |
+
+> ℹ️ Tamamlanmış veya iptal edilmiş görevler düzenlenemez.
+
+---
+
+### 5.8 Tekrarlama
 
 Görevler günlük, haftalık veya aylık olarak tekrarlanabilir.
 
 - Her dönem sonunda aynı görevin yeni kopyası oluşturulur
 - Yeni kopya role otomatik atanır
+- **Hafta ortasında rol alan kişilere** aktif tekrarlayan görevler otomatik atanır (guildMemberUpdate sistemi)
+- Eksik atama varsa `/task forcereassign` ile tüm aktif görevler taranıp eksik kullanıcılar eklenir
 - **XP Limiti** dolmuş kişiler yeni döneme atanmaz
 - Eski dönemin görevi otomatik olarak `tamamlandı` yapılır; kanal embed'indeki butonlar kaldırılır — eski dönem temiz kapanır, yeni dönem aktif görünür
 
 ---
 
-### 5.7 XP Limiti (Tamamlama Limiti)
+### 5.9 XP Limiti (Tamamlama Limiti)
 
 Kişinin bir görev serisinden toplam kaç kez puan alabileceğini sınırlar.
 
@@ -160,7 +180,7 @@ Sınırsız seçilirse her dönem puan almaya devam eder.
 
 ---
 
-### 5.8 Kategoriler
+### 5.10 Kategoriler
 
 Görevler kategorilere atanabilir. Her kategori için **toplam tamamlama limiti** belirlenebilir.
 
@@ -172,7 +192,7 @@ Kategoriler `/task kategori-ekle` ile oluşturulur.
 
 ---
 
-### 5.9 Haftalık Görev Limiti ve %60 Kuralı
+### 5.11 Haftalık Görev Limiti ve %60 Kuralı
 
 Her rolün bir **haftalık isteğe bağlı görev limiti** vardır.
 
@@ -334,8 +354,9 @@ Komutların hangi roller tarafından kullanılabileceğini kontrol eder.
 | `/staff promotions` | Terfi taleplerini listeler |
 | `/task setup` | Görev panel kanalını ayarlar |
 | `/task list` | Görevleri filtreler ve listeler |
-| `/task edit` | Görevi düzenler |
+| `/task edit` | Görevi düzenler (embed + buton sistemi) |
 | `/task complete` | Admin olarak görevi tamamlar |
+| `/task forcereassign [id]` | Aktif görevlere eksik kullanıcıları yeniden atar |
 | `/task kategori-ekle` | Kategori oluşturur |
 | `/task kategori-kaldir` | Kategori siler |
 | `/task kategoriler` | Kategorileri listeler |
@@ -364,7 +385,8 @@ Komutların hangi roller tarafından kullanılabileceğini kontrol eder.
 
 | Komut | Açıklama |
 |---|---|
-| `/my-tasks [durum]` | Sana atanan görevleri listeler; bekliyor / tamamlandı / hepsi filtresi |
+| `/my-tasks [durum]` | Sana atanan görevleri listeler; ilerleme göstergesi ile |
+| `i?mytasks` | Prefix ile aktif görevleri ve ilerlemeyi listeler (`i?tasks`, `i?görevlerim`) |
 | `/profil [@kişi]` | XP özeti, streak, görev tamamlama oranı ve aktivite istatistikleri |
 | `/leaderboard [sıralama]` | Skor / mesaj / ses / görev / streak sıralaması |
 | `/botinfo` | Bot komutları ve sistem bilgisi |

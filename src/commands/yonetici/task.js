@@ -81,6 +81,11 @@ module.exports = {
     .addSubcommand(sub =>
       sub.setName('kategoriler')
         .setDescription('Görev kategorilerini listele')
+    )
+    .addSubcommand(sub =>
+      sub.setName('forcereassign')
+        .setDescription('Aktif görevlere eksik kullanıcıları yeniden ata')
+        .addIntegerOption(opt => opt.setName('id').setDescription('Görev ID (boş = tüm aktif görevler)').setRequired(false))
     ),
   category: 'yonetici',
 
@@ -170,34 +175,43 @@ module.exports = {
         return interaction.reply({ content: `❌ Tamamlanmış veya iptal edilmiş görev düzenlenemez.`, flags: MessageFlags.Ephemeral });
       }
 
-      const modal = new ModalBuilder()
-        .setCustomId(`task_edit_modal_${taskId}`)
-        .setTitle(`✏️ Görev #${taskId} Düzenle`);
+      const PRIO = { yüksek: '🔴 Yüksek', orta: '🟡 Orta', düşük: '🟢 Düşük' };
+      const reqObj = task.requirements ?? {};
+      const reqParts = [];
+      if (reqObj.voice_minutes)     reqParts.push(`ses:${reqObj.voice_minutes}`);
+      if (reqObj.messages)          reqParts.push(`mesaj:${reqObj.messages}`);
+      if (reqObj.partnership_count) reqParts.push(`partnerlik:${reqObj.partnership_count}`);
+      const roles = (task.assigned_role_ids ?? []).map(r => `<@&${r.id ?? r}>`).join(', ') || '*Yok*';
 
-      modal.addComponents(
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder().setCustomId('task_title').setLabel('Başlık')
-            .setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(100).setValue(task.title)
-        ),
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder().setCustomId('task_description').setLabel('Açıklama (isteğe bağlı)')
-            .setStyle(TextInputStyle.Paragraph).setRequired(false).setMaxLength(400).setValue(task.description ?? '')
-        ),
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder().setCustomId('task_start_date').setLabel('Başlangıç Tarihi GG.AA.YYYY (isteğe bağlı)')
-            .setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(10).setValue(task.start_date ?? '')
-        ),
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder().setCustomId('task_due').setLabel('Bitiş Tarihi GG.AA.YYYY (isteğe bağlı)')
-            .setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(10).setValue(task.due_date ?? '')
-        ),
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder().setCustomId('task_points').setLabel('Ödül Puanı')
-            .setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(5).setValue(String(task.points ?? 25))
-        ),
+      const embed = new EmbedBuilder()
+        .setTitle(`✏️ Görev #${taskId} — Düzenle`)
+        .setColor(0x9966ff)
+        .addFields(
+          { name: '📝 Başlık', value: task.title, inline: false },
+          { name: '📄 Açıklama', value: task.description || '*Yok*', inline: false },
+          { name: '📅 Başlangıç', value: task.start_date || '*Yok*', inline: true },
+          { name: '📅 Bitiş', value: task.due_date || '*Yok*', inline: true },
+          { name: '🎯 Gereksinimler', value: reqParts.join(', ') || '*Yok*', inline: true },
+          { name: '⚡ Öncelik', value: PRIO[task.priority] ?? task.priority, inline: true },
+          { name: '💰 Puan', value: `${task.points ?? 25}`, inline: true },
+          { name: '🎭 Roller', value: roles, inline: false },
+          { name: '⚙️ Diğer', value: `Zorunlu: ${task.is_mandatory ? '✅' : '❌'} · Gizli: ${task.is_private ? '✅' : '❌'} · XP Limiti: ${task.xp_limit ?? 'Sınırsız'} · Kategori: ${task.category || '*Yok*'}`, inline: false },
+        )
+        .setFooter({ text: 'Düzenlemek istediğin alana tıkla' });
+
+      const row1 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`task_edit_text_${taskId}`).setLabel('Başlık/Açıklama').setEmoji('📝').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`task_edit_dates_${taskId}`).setLabel('Tarihler').setEmoji('📅').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`task_edit_req_${taskId}`).setLabel('Gereksinimler').setEmoji('🎯').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`task_edit_priority_${taskId}`).setLabel('Öncelik').setEmoji('⚡').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`task_edit_points_${taskId}`).setLabel('Puan').setEmoji('💰').setStyle(ButtonStyle.Secondary),
+      );
+      const row2 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`task_edit_roles_${taskId}`).setLabel('Roller').setEmoji('🎭').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`task_edit_other_${taskId}`).setLabel('Diğer').setEmoji('⚙️').setStyle(ButtonStyle.Secondary),
       );
 
-      return interaction.showModal(modal);
+      return interaction.reply({ embeds: [embed], components: [row1, row2], flags: MessageFlags.Ephemeral });
     }
 
     // ── complete ──────────────────────────────────────────────
@@ -361,6 +375,57 @@ module.exports = {
       }
 
       return interaction.reply({ embeds: [embed], components: rows, flags: MessageFlags.Ephemeral });
+    }
+
+    // ── forcereassign ─────────────────────────────────────────
+    if (sub === 'forcereassign') {
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+      const taskId = interaction.options.getInteger('id');
+      const where  = taskId
+        ? `WHERE guild_id = $1 AND id = $2 AND status IN ('bekliyor', 'devam')`
+        : `WHERE guild_id = $1 AND status IN ('bekliyor', 'devam') AND recurrence IS NOT NULL`;
+      const params = taskId ? [guildId, taskId] : [guildId];
+
+      const tasks = await pool.query(`SELECT id, title, assigned_role_ids FROM tasks ${where}`, params);
+      if (!tasks.rows.length) return interaction.editReply({ content: '❌ Aktif görev bulunamadı.' });
+
+      await interaction.guild.members.fetch();
+
+      let totalAdded = 0;
+      const results = [];
+
+      for (const task of tasks.rows) {
+        const roleIds = (task.assigned_role_ids ?? []).map(r => r.id ?? r);
+        if (!roleIds.length) continue;
+
+        const members = interaction.guild.members.cache.filter(m =>
+          m.roles.cache.some(r => roleIds.includes(r.id))
+        );
+
+        let added = 0;
+        for (const [, member] of members) {
+          const exists = await pool.query(
+            `SELECT 1 FROM task_assignments WHERE task_id = $1 AND user_id = $2`,
+            [task.id, member.id]
+          );
+          if (exists.rows.length) continue;
+
+          await pool.query(
+            `INSERT INTO task_assignments (task_id, user_id, username, assigned_at)
+             VALUES ($1, $2, $3, NOW()) ON CONFLICT DO NOTHING`,
+            [task.id, member.id, member.user.username]
+          );
+          added++;
+          totalAdded++;
+        }
+
+        results.push(`**#${task.id} ${task.title}** → ${added} kişi eklendi`);
+      }
+
+      return interaction.editReply({
+        content: `✅ Yeniden atama tamamlandı — toplam **${totalAdded}** kişi eklendi:\n${results.join('\n')}`,
+      });
     }
   },
 };

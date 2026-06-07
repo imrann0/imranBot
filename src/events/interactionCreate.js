@@ -283,6 +283,135 @@ module.exports = {
       }
 
       // ── Not Ekle ──────────────────────────────────────────
+      // ── Görev düzenleme butonları ─────────────────────────────
+      if (customId.startsWith('task_edit_text_')) {
+        const taskId = parseInt(customId.replace('task_edit_text_', ''));
+        const task = await getTask(interaction.guild.id, taskId);
+        return interaction.showModal(new ModalBuilder()
+          .setCustomId(`task_edit_text_modal_${taskId}`)
+          .setTitle(`📝 Başlık / Açıklama`)
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId('edit_title').setLabel('Başlık')
+                .setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(100).setValue(task?.title ?? '')
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId('edit_description').setLabel('Açıklama (isteğe bağlı)')
+                .setStyle(TextInputStyle.Paragraph).setRequired(false).setMaxLength(400).setValue(task?.description ?? '')
+            ),
+          ));
+      }
+
+      if (customId.startsWith('task_edit_dates_')) {
+        const taskId = parseInt(customId.replace('task_edit_dates_', ''));
+        const task = await getTask(interaction.guild.id, taskId);
+        return interaction.showModal(new ModalBuilder()
+          .setCustomId(`task_edit_dates_modal_${taskId}`)
+          .setTitle(`📅 Tarihler`)
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId('edit_start').setLabel('Başlangıç Tarihi GG.AA.YYYY (boş = kaldır)')
+                .setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(10).setValue(task?.start_date ?? '').setPlaceholder('05.06.2026')
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId('edit_due').setLabel('Bitiş Tarihi GG.AA.YYYY (boş = kaldır)')
+                .setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(10).setValue(task?.due_date ?? '').setPlaceholder('12.06.2026')
+            ),
+          ));
+      }
+
+      if (customId.startsWith('task_edit_req_')) {
+        const taskId = parseInt(customId.replace('task_edit_req_', ''));
+        const task = await getTask(interaction.guild.id, taskId);
+        const reqObj = task?.requirements ?? {};
+        const reqParts = [];
+        if (reqObj.voice_minutes)     reqParts.push(`ses:${reqObj.voice_minutes}`);
+        if (reqObj.messages)          reqParts.push(`mesaj:${reqObj.messages}`);
+        if (reqObj.partnership_count) reqParts.push(`partnerlik:${reqObj.partnership_count}`);
+        return interaction.showModal(new ModalBuilder()
+          .setCustomId(`task_edit_req_modal_${taskId}`)
+          .setTitle(`🎯 Gereksinimler`)
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId('edit_req').setLabel('Gereksinimler (ses:X, mesaj:X, partnerlik:X)')
+                .setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(100)
+                .setValue(reqParts.join(', ')).setPlaceholder('ses:30, mesaj:50, partnerlik:5')
+            ),
+          ));
+      }
+
+      if (customId.startsWith('task_edit_priority_')) {
+        const taskId = parseInt(customId.replace('task_edit_priority_', ''));
+        return interaction.reply({
+          content: '⚡ Yeni önceliği seç:',
+          components: [new ActionRowBuilder().addComponents(
+            new StringSelectMenuBuilder()
+              .setCustomId(`task_edit_priority_select_${taskId}`)
+              .setPlaceholder('Öncelik seç')
+              .addOptions(
+                { label: '🔴 Yüksek', value: 'yüksek' },
+                { label: '🟡 Orta',   value: 'orta'   },
+                { label: '🟢 Düşük',  value: 'düşük'  },
+              )
+          )],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      if (customId.startsWith('task_edit_points_')) {
+        const taskId = parseInt(customId.replace('task_edit_points_', ''));
+        const task = await getTask(interaction.guild.id, taskId);
+        return interaction.showModal(new ModalBuilder()
+          .setCustomId(`task_edit_points_modal_${taskId}`)
+          .setTitle(`💰 Ödül Puanı`)
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId('edit_points').setLabel('Puan (5–500)')
+                .setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(5).setValue(String(task?.points ?? 25))
+            ),
+          ));
+      }
+
+      if (customId.startsWith('task_edit_roles_')) {
+        const taskId = parseInt(customId.replace('task_edit_roles_', ''));
+        return interaction.reply({
+          content: '🎭 Yeni rolleri seç (seçim yapınca kaydedilir):',
+          components: [new ActionRowBuilder().addComponents(
+            new RoleSelectMenuBuilder()
+              .setCustomId(`task_edit_roles_select_${taskId}`)
+              .setPlaceholder('Roller seç')
+              .setMinValues(0).setMaxValues(10)
+          )],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      if (customId.startsWith('task_edit_other_')) {
+        const taskId = parseInt(customId.replace('task_edit_other_', ''));
+        const task = await getTask(interaction.guild.id, taskId);
+        return interaction.showModal(new ModalBuilder()
+          .setCustomId(`task_edit_other_modal_${taskId}`)
+          .setTitle(`⚙️ Diğer Ayarlar`)
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId('edit_mandatory').setLabel('Zorunlu mu? (evet / hayır)')
+                .setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(5).setValue(task?.is_mandatory ? 'evet' : 'hayır')
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId('edit_private').setLabel('Gizli mi? (evet / hayır)')
+                .setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(5).setValue(task?.is_private ? 'evet' : 'hayır')
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId('edit_xplimit').setLabel('XP Limiti (boş = sınırsız)')
+                .setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(5).setValue(String(task?.xp_limit ?? ''))
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId('edit_category').setLabel('Kategori (boş = kategorisiz)')
+                .setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(50).setValue(task?.category ?? '')
+            ),
+          ));
+      }
+
       if (customId.startsWith('task_note_')) {
         const taskId = parseInt(customId.replace('task_note_', ''));
         if (isNaN(taskId)) return interaction.reply({ content: '❌ Geçersiz görev ID.', flags: MessageFlags.Ephemeral });
@@ -951,6 +1080,31 @@ module.exports = {
       return interaction.update(buildStepOneComponents(draft));
     }
 
+    // ── Select Menu (görev düzenleme) ────────────────────────
+    if (interaction.isAnySelectMenu()) {
+      const { customId } = interaction;
+
+      // Öncelik seçimi
+      if (customId.startsWith('task_edit_priority_select_')) {
+        const taskId  = parseInt(customId.replace('task_edit_priority_select_', ''));
+        const guildId = interaction.guild.id;
+        const priority = interaction.values[0];
+        await updateTask(guildId, taskId, { priority });
+        await refreshTaskEmbed(interaction.client, guildId, taskId);
+        return interaction.update({ content: `✅ Öncelik güncellendi: **${priority}**.`, components: [] });
+      }
+
+      // Rol seçimi
+      if (customId.startsWith('task_edit_roles_select_')) {
+        const taskId  = parseInt(customId.replace('task_edit_roles_select_', ''));
+        const guildId = interaction.guild.id;
+        const roles   = interaction.roles.map(r => ({ id: r.id, name: r.name }));
+        await updateTask(guildId, taskId, { assigned_role_ids: JSON.stringify(roles) });
+        await refreshTaskEmbed(interaction.client, guildId, taskId);
+        return interaction.update({ content: `✅ Roller güncellendi.`, components: [] });
+      }
+    }
+
     // ── Modal Submit ──────────────────────────────────────────
     if (interaction.isModalSubmit()) {
 
@@ -1036,32 +1190,62 @@ module.exports = {
         return interaction.reply({ ...buildPreviewMessage(pending), flags: MessageFlags.Ephemeral });
       }
 
-      // Görev düzenleme modalı
-      if (interaction.customId.startsWith('task_edit_modal_')) {
-        const taskId = parseInt(interaction.customId.replace('task_edit_modal_', ''));
-        if (isNaN(taskId)) return interaction.reply({ content: '❌ Geçersiz görev ID.', flags: MessageFlags.Ephemeral });
+      // ── Yeni edit sistem modal handler'ları ───────────────────
+
+      // Başlık/Açıklama
+      if (interaction.customId.startsWith('task_edit_text_modal_')) {
+        const taskId  = parseInt(interaction.customId.replace('task_edit_text_modal_', ''));
         const guildId = interaction.guild.id;
-        const title       = interaction.fields.getTextInputValue('task_title');
-        const description = interaction.fields.getTextInputValue('task_description') || null;
-        const startDate   = interaction.fields.getTextInputValue('task_start_date') || null;
-        const dueDate     = interaction.fields.getTextInputValue('task_due') || null;
-        const points      = parseInt(interaction.fields.getTextInputValue('task_points')) || 25;
+        const title       = interaction.fields.getTextInputValue('edit_title');
+        const description = interaction.fields.getTextInputValue('edit_description') || null;
+        await updateTask(guildId, taskId, { title, description });
+        await refreshTaskEmbed(interaction.client, guildId, taskId);
+        return interaction.reply({ content: `✅ Başlık/Açıklama güncellendi.`, flags: MessageFlags.Ephemeral });
+      }
 
-        await updateTask(guildId, taskId, { title, description, start_date: startDate, due_date: dueDate, points });
+      // Tarihler
+      if (interaction.customId.startsWith('task_edit_dates_modal_')) {
+        const taskId  = parseInt(interaction.customId.replace('task_edit_dates_modal_', ''));
+        const guildId = interaction.guild.id;
+        const startDate = interaction.fields.getTextInputValue('edit_start') || null;
+        const dueDate   = interaction.fields.getTextInputValue('edit_due') || null;
+        await updateTask(guildId, taskId, { start_date: startDate, due_date: dueDate });
+        await refreshTaskEmbed(interaction.client, guildId, taskId);
+        return interaction.reply({ content: `✅ Tarihler güncellendi.`, flags: MessageFlags.Ephemeral });
+      }
 
-        const updated = await getTask(guildId, taskId);
-        const embed   = await buildTaskEmbed(updated);
-        const buttons = buildTaskButtons(taskId, updated.status, updated);
+      // Gereksinimler
+      if (interaction.customId.startsWith('task_edit_req_modal_')) {
+        const taskId  = parseInt(interaction.customId.replace('task_edit_req_modal_', ''));
+        const guildId = interaction.guild.id;
+        const reqRaw  = interaction.fields.getTextInputValue('edit_req') || '';
+        const reqObj  = parseRequirements(reqRaw);
+        await updateTask(guildId, taskId, { requirements: JSON.stringify(reqObj) });
+        await refreshTaskEmbed(interaction.client, guildId, taskId);
+        return interaction.reply({ content: `✅ Gereksinimler güncellendi.`, flags: MessageFlags.Ephemeral });
+      }
 
-        if (updated.message_id && updated.channel_id) {
-          try {
-            const ch = interaction.client.channels.cache.get(updated.channel_id);
-            const msg = await ch?.messages.fetch(updated.message_id);
-            if (msg) await msg.edit({ embeds: [embed], components: buttons ? [buttons] : [] });
-          } catch {}
-        }
+      // Puan
+      if (interaction.customId.startsWith('task_edit_points_modal_')) {
+        const taskId  = parseInt(interaction.customId.replace('task_edit_points_modal_', ''));
+        const guildId = interaction.guild.id;
+        const points  = parseInt(interaction.fields.getTextInputValue('edit_points')) || 25;
+        await updateTask(guildId, taskId, { points });
+        await refreshTaskEmbed(interaction.client, guildId, taskId);
+        return interaction.reply({ content: `✅ Puan güncellendi: **${points}p**.`, flags: MessageFlags.Ephemeral });
+      }
 
-        return interaction.reply({ content: `✅ Görev **#${taskId}** güncellendi.`, flags: MessageFlags.Ephemeral });
+      // Diğer (zorunlu, gizli, XP limiti, kategori)
+      if (interaction.customId.startsWith('task_edit_other_modal_')) {
+        const taskId     = parseInt(interaction.customId.replace('task_edit_other_modal_', ''));
+        const guildId    = interaction.guild.id;
+        const isMandatory = interaction.fields.getTextInputValue('edit_mandatory').toLowerCase().startsWith('e');
+        const isPrivate   = interaction.fields.getTextInputValue('edit_private').toLowerCase().startsWith('e');
+        const xpLimit     = parseInt(interaction.fields.getTextInputValue('edit_xplimit')) || null;
+        const category    = interaction.fields.getTextInputValue('edit_category') || null;
+        await updateTask(guildId, taskId, { is_mandatory: isMandatory, is_private: isPrivate, xp_limit: xpLimit, category });
+        await refreshTaskEmbed(interaction.client, guildId, taskId);
+        return interaction.reply({ content: `✅ Diğer ayarlar güncellendi.`, flags: MessageFlags.Ephemeral });
       }
 
       // Not ekleme modalı
@@ -1257,6 +1441,20 @@ async function publishPendingTask(interaction, alreadyReplied = false) {
     if (alreadyReplied) return interaction.followUp(errMsg).catch(() => {});
     return interaction.update({ content: errMsg.content, embeds: [], components: [] }).catch(() => {});
   }
+}
+
+// ── Görev embed'ini kanalda güncelle ─────────────────────────
+async function refreshTaskEmbed(client, guildId, taskId) {
+  try {
+    const task    = await getTask(guildId, taskId);
+    if (!task?.message_id || !task?.channel_id) return;
+    const ch  = client.channels.cache.get(task.channel_id);
+    const msg = await ch?.messages.fetch(task.message_id).catch(() => null);
+    if (!msg) return;
+    const embed   = await buildTaskEmbed(task);
+    const buttons = buildTaskButtons(taskId, task.status, task);
+    await msg.edit({ embeds: [embed], components: buttons ? [buttons] : [] });
+  } catch {}
 }
 
 // ── Görev tamamlama — ortak XP mantığı ──────────────────────

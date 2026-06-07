@@ -301,7 +301,7 @@ const ALLOWED_TASK_COLUMNS = new Set([
   'title', 'description', 'priority', 'points', 'status',
   'start_date', 'due_date', 'message_id', 'channel_id',
   'recurrence', 'next_recurrence', 'is_mandatory', 'category',
-  'xp_limit', 'is_private', 'requirements',
+  'xp_limit', 'is_private', 'requirements', 'assigned_role_ids',
 ]);
 async function updateTask(guildId, id, fields) {
   const safeFields = Object.fromEntries(Object.entries(fields).filter(([k]) => ALLOWED_TASK_COLUMNS.has(k)));

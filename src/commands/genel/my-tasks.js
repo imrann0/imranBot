@@ -1,6 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { pool } = require('../../utils/database');
-const { checkRequirements, parseRequirements } = require('../../utils/taskManager');
+const { checkRequirements } = require('../../utils/taskManager');
 
 const STATUS_EMOJI = { bekliyor: '⏳', 'onay_bekleniyor': '🕐', devam: '🔄', tamamlandı: '✅', iptal: '❌' };
 const REC_LABEL    = { gunluk: '📅 Günlük', haftalik: '📅 Haftalık', aylik: '📅 Aylık' };
@@ -83,8 +83,6 @@ module.exports = {
       // Bekleyen görevlerde ilerleme göster
       let progressLine = '';
       if (t.my_status === 'bekliyor') {
-        const req = parseRequirements('');
-        // DB'den requirements JSON olarak geliyor
         const taskReq = t.requirements ?? {};
         if (Object.keys(taskReq).length > 0) {
           const fakeAssignment = { assigned_at: t.assigned_at };
