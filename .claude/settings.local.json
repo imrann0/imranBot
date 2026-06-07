@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm --version)",
+      "Bash(node -e \"require\\('./src/utils/database'\\); require\\('./src/utils/activityTracker'\\); require\\('./src/utils/taskManager'\\); require\\('./src/utils/staffRoles'\\); require\\('./src/utils/blockedChannels'\\); console.log\\('OK'\\)\")",
+      "Bash(node -e ' *)"
+    ]
+  }
+}
