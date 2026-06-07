@@ -9,6 +9,7 @@ const {
   getTemplates, deleteTemplate,
   addCategory, removeCategory, getCategories,
   checkXpLimit, checkCategoryCap,
+  checkRequirements, formatRequirements,
 } = require('../../utils/taskManager');
 const { pool } = require('../../utils/database');
 const { addTaskPoints, addMandatoryTaskPoints } = require('../../utils/activityTracker');
@@ -436,8 +437,6 @@ module.exports = {
     // ── progress ──────────────────────────────────────────────
     if (sub === 'progress') {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-      const { checkRequirements, formatRequirements } = require('../../utils/taskManager');
-
       const taskId = interaction.options.getInteger('id');
       const task   = await getTask(guildId, taskId);
       if (!task) return interaction.editReply({ content: `❌ Görev #${taskId} bulunamadı.` });

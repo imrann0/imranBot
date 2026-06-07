@@ -89,7 +89,13 @@ module.exports = {
           },
           {
             name: '🎙️ Ses Puanlama',
-            value: `Seste geçirilen her **1 dakika** → **+${cfg.voice_per_min} puan**\nPuan, ses kanalından çıkıldığında eklenir.`,
+            value: [
+              `Sadece **mikrofon açıkken** geçirilen süre sayılır — mute olunca sayaç durur.`,
+              `Her **1 dakika** (mic açık) → **+${cfg.voice_per_min} puan**`,
+              `**1 saat** mic açık → **+${(cfg.voice_per_min * 60).toFixed(1)} puan**`,
+              `**8 saat** mic açık → **+${(cfg.voice_per_min * 60 * 8).toFixed(1)} puan**`,
+              `Puan ses kanalından çıkıldığında hesaplanır.`,
+            ].join('\n'),
             inline: false,
           },
           {
