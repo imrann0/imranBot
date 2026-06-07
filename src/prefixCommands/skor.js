@@ -1,5 +1,6 @@
 const { EmbedBuilder } = require('discord.js');
 const { getUser, activityScore, formatTime } = require('../utils/activityTracker');
+const { getRoles, getUser: getRsUser } = require('../utils/roleSystem');
 const { pool } = require('../utils/database');
 const { getCurrentSeason } = require('../utils/seasonManager');
 
@@ -53,6 +54,29 @@ module.exports = {
     ).then(r => r.rows[0]).catch(() => null);
     const mandDone = mandRow?.completed ?? false;
 
+    // Streak ve uyarı
+    const rsUser = await getRsUser(guildId, target.id).catch(() => null);
+    const streak   = rsUser?.streak ?? 0;
+    const warnings = rsUser?.warning_count ?? 0;
+
+    // Rol hiyerarşisi (mevcut rol + sonraki rol)
+    let currentRole = null;
+    let nextRole    = null;
+    let xpToNext    = null;
+    try {
+      const member = await message.guild.members.fetch(target.id);
+      const roles  = await getRoles(guildId);
+      for (const r of [...roles].reverse()) {
+        if (member.roles.cache.has(r.role_id)) { currentRole = r; break; }
+      }
+      if (currentRole) {
+        nextRole = roles.find(r => r.position === currentRole.position + 1) ?? null;
+      } else if (roles.length) {
+        nextRole = roles[0];
+      }
+      if (nextRole) xpToNext = Math.max(0, nextRole.xp_required - totalXP);
+    } catch {}
+
     const currentSeason = await getCurrentSeason(guildId);
     const seasonFooter  = currentSeason ? `📅 ${currentSeason.name}` : 'Aktif sezon yok';
 
@@ -68,12 +92,17 @@ module.exports = {
         `📌 Sorumluluk: **${respPts}p**  •  ✨ Manuel: **${manualPts}p**`,
       ].join('\n'))
       .addFields(
-        { name: '💬 Mesaj Sayısı',      value: `${act.messages ?? 0}`,                      inline: true },
-        { name: '🎙️ Toplam Ses',        value: formatTime(Number(act.voice_seconds ?? 0)),   inline: true },
-        { name: '📅 Bu Hafta Zorunlu',  value: mandDone ? '✅ Tamamlandı' : '❌ Tamamlanmadı', inline: true },
-        { name: '✅ Tamamlanan Görev',  value: `${taskStats.completed}`,                     inline: true },
-        { name: '⏳ Bekleyen Görev',    value: `${taskStats.pending}`,                       inline: true },
-        { name: '📅 Bu Hafta Görev',    value: `${taskStats.completed_7d} tamamlandı`,       inline: true },
+        { name: '💬 Mesaj Sayısı',      value: `${act.messages ?? 0}`,                           inline: true },
+        { name: '🎙️ Toplam Ses',        value: formatTime(Number(act.voice_seconds ?? 0)),        inline: true },
+        { name: '📅 Bu Hafta Zorunlu',  value: mandDone ? '✅ Tamamlandı' : '❌ Tamamlanmadı',    inline: true },
+        { name: '🔥 Streak',            value: `${streak} hafta`,                                 inline: true },
+        { name: '⚠️ Uyarı',            value: `${warnings}`,                                     inline: true },
+        { name: '✅ Tamamlanan Görev',  value: `${taskStats.completed}`,                          inline: true },
+        { name: '🎭 Mevcut Rol',        value: currentRole ? `<@&${currentRole.role_id}>` : '*Yok*', inline: true },
+        { name: '🎯 Sonraki Rol',       value: nextRole
+            ? `<@&${nextRole.role_id}> · **${xpToNext}p** kaldı`
+            : '*En üst roldeysin*',                                                                inline: true },
+        { name: '⏳ Bekleyen Görev',    value: `${taskStats.pending}`,                            inline: true },
       )
       .setFooter({ text: seasonFooter })
       .setTimestamp();

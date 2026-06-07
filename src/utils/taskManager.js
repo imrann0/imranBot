@@ -187,18 +187,7 @@ async function checkPartnershipTasks(client, guildId, userId, username, guild) {
           earnedPoints = finalPoints;
           await addMandatoryTaskPoints(guildId, userId, username, finalPoints);
           const mandRes = await completeMandatoryFromTask(guildId, userId, username);
-          // Streak sıfırlandıysa DM gönder
-          if (mandRes?.streakBroken) {
-            try {
-              const dmUser = await client.users.fetch(userId);
-              const { EmbedBuilder: EB } = require('discord.js');
-              await dmUser.send({ embeds: [new EB()
-                .setColor(0xff4444)
-                .setTitle('💔 Seri Bozuldu!')
-                .setDescription(`**${mandRes.oldStreak} haftalık** serin, geçen haftaki zorunlu görevi tamamlamadığın için sıfırlandı.\n\nDevam et — yeni serin şimdi başlıyor! 💪`)
-                .setTimestamp()] }).catch(() => {});
-            } catch {}
-          }
+          // Streak sıfırlandı (DM devre dışı)
           pointMsg = `+${finalPoints} puan`;
         }
       } else {
@@ -227,32 +216,9 @@ async function checkPartnershipTasks(client, guildId, userId, username, guild) {
       console.error('[checkPartnershipTasks XP]', err);
     }
 
-    // DM gönder
-    try {
-      const dmUser = await client.users.fetch(userId);
-      await dmUser.send({
-        embeds: [new EmbedBuilder()
-          .setColor(0x44cc88)
-          .setTitle('✅ Partnerlik Görevi Tamamlandı!')
-          .setDescription(`Partnerlik görevin otomatik olarak tamamlandı.`)
-          .addFields({ name: '🏆 Puan', value: pointMsg, inline: true })
-          .setTimestamp()],
-      });
-    } catch {}
-
     // Terfi kontrolü
     try {
-      const promoRole = await checkPromotion(guildId, guild, userId, username);
-      if (promoRole) {
-        const dmUser = await client.users.fetch(userId);
-        await dmUser.send({
-          embeds: [new EmbedBuilder()
-            .setColor(0xffd700)
-            .setTitle('🎉 Terfi Şartlarını Karşıladın!')
-            .setDescription(`<@&${promoRole.role_id}> için terfi şartlarını karşıladın! Sunucuya gidip "Terfi Talep Et" butonuna bas.`)
-            .setTimestamp()],
-        }).catch(() => {});
-      }
+      await checkPromotion(guildId, guild, userId, username);
     } catch {}
   }
 }
@@ -780,8 +746,66 @@ async function getPendingApprovals(guildId) {
   return res.rows;
 }
 
+// Spam engeli: task_id:user_id → bildirim zamanı (24 saat TTL)
+const _notifiedCache = new Map();
+setInterval(() => {
+  const ttl = 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  for (const [k, t] of _notifiedCache) if (now - t > ttl) _notifiedCache.delete(k);
+}, 60 * 60 * 1000).unref();
+
+// ── Görev gereksinimi karşılandığında score log kanalına bildir ─
+async function notifyTaskReady(client, guildId, userId, username) {
+  try {
+    // Score log kanalı
+    const logChRes = await pool.query(
+      `SELECT value FROM guild_config WHERE guild_id = $1 AND key = 'points_log_channel'`,
+      [guildId]
+    );
+    const logChId = logChRes.rows[0]?.value;
+    if (!logChId) return;
+    const logCh = client.channels.cache.get(logChId);
+    if (!logCh) return;
+
+    // Kullanıcının bekleyen görevlerini çek
+    const tasks = await pool.query(`
+      SELECT t.id, t.title, t.requirements, t.is_mandatory, t.start_date,
+             ta.assigned_at, ta.status
+      FROM task_assignments ta
+      JOIN tasks t ON t.id = ta.task_id
+      WHERE t.guild_id = $1 AND ta.user_id = $2
+        AND ta.status = 'bekliyor' AND t.status = 'bekliyor'
+    `, [guildId, userId]);
+
+    for (const t of tasks.rows) {
+      const req = t.requirements ?? {};
+      if (!Object.keys(req).length) continue;
+
+      const result = await checkRequirements(guildId, userId, t, t).catch(() => null);
+      if (!result?.met) continue;
+
+      // Spam engeli — memory cache (24 saat)
+      const cacheKey = `${guildId}:${t.id}:${userId}`;
+      if (_notifiedCache.has(cacheKey)) continue;
+      _notifiedCache.set(cacheKey, Date.now());
+
+      // Bildirim gönder
+      const { EmbedBuilder } = require('discord.js');
+      await logCh.send({
+        embeds: [new EmbedBuilder()
+          .setColor(0x44cc88)
+          .setTitle('✅ Görev Tamamlanabilir')
+          .setDescription(`<@${userId}> **#${t.id} ${t.title}** görevinin gereksinimlerini karşıladı!\nGörev kanalına giderek **Tamamlandı** butonuna basabilir.`)
+          .setTimestamp()
+        ],
+      }).catch(() => {});
+    }
+  } catch {}
+}
+
 module.exports = {
   parseRequirements, formatRequirements, checkRequirements,
+  notifyTaskReady,
   getConfig, setConfig,
   createTaskNote, getTaskNotes,
   saveTemplate, getTemplates, getTemplate, deleteTemplate,

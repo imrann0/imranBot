@@ -449,55 +449,93 @@ module.exports = {
       const maxMsg    = req.messages          ?? 0;
       const maxPart   = req.partnership_count ?? 0;
 
-      // Tüm atamaları çek
-      const { rows } = await pool.query(
-        `SELECT user_id, username, status, assigned_at FROM task_assignments WHERE task_id = $1`,
-        [taskId]
-      );
+      // start_date ve assigned_at'ten since hesapla
+      const startDateRaw = task.start_date;
+      let sinceExpr = `ta.assigned_at`; // varsayılan: atanma tarihi
+      let sinceParams = [guildId, taskId]; // ek parametre gerekirse buraya
+      if (startDateRaw) {
+        const sp = startDateRaw.split('.');
+        if (sp.length === 3 && sp.every(p => /^\d+$/.test(p.trim()))) {
+          const iso = `${sp[2].trim()}-${sp[1].trim().padStart(2,'0')}-${sp[0].trim().padStart(2,'0')}`;
+          sinceParams = [guildId, taskId, iso];
+          sinceExpr = `GREATEST(ta.assigned_at, $3::timestamptz)`;
+        }
+      }
+
+      const cfg = await (async () => {
+        const { getScoreConfig } = require('../../utils/activityTracker');
+        return getScoreConfig(guildId);
+      })();
+
+      // Tek SQL — tüm kullanıcıların ilerleme verisi
+      const { rows } = await pool.query(`
+        SELECT
+          ta.user_id, ta.username, ta.status, ta.assigned_at,
+          COALESCE((
+            SELECT SUM(vl.active_seconds)
+            FROM voice_logs vl
+            WHERE vl.guild_id = $1 AND vl.user_id = ta.user_id
+              AND vl.joined_at >= ${sinceExpr}
+          ), 0) AS voice_seconds,
+          COALESCE((
+            SELECT SUM(ml.score)
+            FROM message_logs ml
+            WHERE ml.guild_id = $1 AND ml.user_id = ta.user_id
+              AND ml.created_at >= ${sinceExpr}
+          ), 0) AS msg_score,
+          COALESCE((
+            SELECT COUNT(*)
+            FROM partnership_logs pl
+            WHERE pl.guild_id = $1 AND pl.user_id = ta.user_id
+              AND pl.created_at >= ${sinceExpr}
+          ), 0) AS partnership_count
+        FROM task_assignments ta
+        WHERE ta.task_id = $2
+      `, sinceParams);
 
       if (!rows.length) return interaction.editReply({ content: '📭 Bu göreve henüz kimse atanmamış.' });
 
       const STATUS_EMOJI = { bekliyor: '⏳', onay_bekleniyor: '🕐', tamamlandı: '✅', iptal: '❌' };
 
-      // Her kullanıcı için ilerleme hesapla
-      const entries = [];
-      for (const a of rows) {
+      const entries = rows.map(a => {
         if (a.status === 'tamamlandı') {
-          entries.push({ a, score: Infinity, line: `✅ **${a.username}** — Tamamlandı` });
-          continue;
+          return { score: Infinity, line: `✅ **${a.username}** — Tamamlandı` };
         }
         if (!hasReq) {
-          entries.push({ a, score: 0, line: `${STATUS_EMOJI[a.status] ?? '⏳'} **${a.username}**` });
-          continue;
-        }
-        const result = await checkRequirements(guildId, a.user_id, a, task).catch(() => null);
-        if (!result) {
-          entries.push({ a, score: -1, line: `⏳ **${a.username}** — *hesaplanamadı*` });
-          continue;
+          return { score: 0, line: `${STATUS_EMOJI[a.status] ?? '⏳'} **${a.username}**` };
         }
 
-        // İlerleme yüzdesini hesapla (sıralama için)
-        let pct = 0;
         const progParts = [];
-        for (const p of result.progress) {
-          // "🎙️ Ses puanı: 89.7/1080 ❌" formatından değer çıkar
-          const m = p.match(/([\d.]+)\/([\d.]+)/);
-          if (m) {
-            const done = parseFloat(m[1]);
-            const total = parseFloat(m[2]);
-            if (total > 0) pct = Math.max(pct, Math.round((done / total) * 100));
-            progParts.push(p.replace(/\s*(✅|❌)(\s*\(.*?\))?/, '').trim() + ` **(${Math.round((done / total) * 100)}%)**`);
-          } else {
-            progParts.push(p);
-          }
+        let pct = 0;
+
+        if (req.voice_minutes) {
+          const done = Math.round((Number(a.voice_seconds) / 60) * cfg.voice_per_min * 100) / 100;
+          const target = req.voice_minutes;
+          const p = Math.min(100, Math.round((done / target) * 100));
+          pct = Math.max(pct, p);
+          progParts.push(`🎙️ ${done}/${target} **(${p}%)**`);
+        }
+        if (req.messages) {
+          const done = Math.round(Number(a.msg_score) * 100) / 100;
+          const target = req.messages;
+          const p = Math.min(100, Math.round((done / target) * 100));
+          pct = Math.max(pct, p);
+          progParts.push(`💬 ${done}/${target} **(${p}%)**`);
+        }
+        if (req.partnership_count) {
+          const done = parseInt(a.partnership_count);
+          const target = req.partnership_count;
+          const p = Math.min(100, Math.round((done / target) * 100));
+          pct = Math.max(pct, p);
+          progParts.push(`🤝 ${done}/${target} **(${p}%)**`);
         }
 
-        entries.push({
-          a,
+        const emoji = pct >= 100 ? '✅' : (STATUS_EMOJI[a.status] ?? '⏳');
+        return {
           score: pct,
-          line: `${STATUS_EMOJI[a.status] ?? '⏳'} **${a.username}** — ${progParts.join(' · ')}`,
-        });
-      }
+          line: `${emoji} **${a.username}** — ${progParts.join(' · ')}`,
+        };
+      });
 
       // Sırala: tamamlananlar önce, sonra yüzde azalan
       entries.sort((a, b) => b.score - a.score);

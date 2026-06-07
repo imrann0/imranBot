@@ -1,5 +1,6 @@
 const { voiceJoin, voiceLeave, voiceMicOn, voiceMicOff } = require('../utils/activityTracker');
 const { isStaff } = require('../utils/staffRoles');
+const { notifyTaskReady } = require('../utils/taskManager');
 
 // Kullanıcı kanalda mı? (serverMute/serverDeaf channel presence'ı bozmaz)
 function isActiveChannel(state) {
@@ -48,6 +49,8 @@ module.exports = {
         : newState.channelId === newState.guild.afkChannelId ? 'AFK kanalına geçti'
         : 'sunucu tarafından susturuldu';
       console.log(`🔇 ${member.user.username} pasif (${reason})`);
+      // Ses bitti → görev gereksinimi karşılandı mı kontrol et
+      notifyTaskReady(member.guild.client, guildId, member.id, member.user.username).catch(() => {});
       return;
     }
 

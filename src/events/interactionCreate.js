@@ -517,17 +517,12 @@ module.exports = {
 
         await interaction.update({ embeds: [doneEmbed], components: [] });
 
-        // Kullanıcıya DM
-        try {
-          const tUser = await interaction.client.users.fetch(tUserId);
-          await tUser.send({
-            embeds: [new EmbedBuilder()
-              .setColor(0x44cc88)
-              .setTitle('🎉 Terfi Talebin Onaylandı!')
-              .setDescription(`<@&${tRoleId}> rolü yakında verilecek. Tebrikler! 🎊`)
-              .setTimestamp()],
-          });
-        } catch {}
+        // Kullanıcıya log kanalında bildirim
+        await interaction.followUp({
+          content: `🎉 <@${tUserId}> terfin onaylandı! → <@&${tRoleId}>`,
+          flags: MessageFlags.Ephemeral,
+        }).catch(() => {});
+
         return;
       }
 
@@ -549,17 +544,12 @@ module.exports = {
 
         await interaction.update({ embeds: [rejEmbed], components: [] });
 
-        // Kullanıcıya DM
-        try {
-          const tUser = await interaction.client.users.fetch(tUserId);
-          await tUser.send({
-            embeds: [new EmbedBuilder()
-              .setColor(0xff4444)
-              .setTitle('❌ Terfi Talebin Reddedildi')
-              .setDescription('Yetkililerin terfi talebini şimdilik reddetti. Gelişmeye devam et! 💪')
-              .setTimestamp()],
-          });
-        } catch {}
+        // Kullanıcıya log kanalında bildirim
+        await interaction.followUp({
+          content: `❌ <@${tUserId}> terfi talebin reddedildi.`,
+          flags: MessageFlags.Ephemeral,
+        }).catch(() => {});
+
         return;
       }
 
@@ -879,6 +869,15 @@ module.exports = {
           const updatedButtons = buildTaskButtons(updatedTask.id, updatedTask.status, updatedTask);
           await interaction.update({ embeds: [updatedEmbed], components: updatedButtons ? [updatedButtons] : [] });
 
+          // Görev kanalındaki ana embed'i de güncelle (/my-tasks üzerinden tamamlandıysa)
+          if (updatedTask.message_id && updatedTask.channel_id) {
+            try {
+              const taskCh = interaction.client.channels.cache.get(updatedTask.channel_id);
+              const taskMsg = await taskCh?.messages.fetch(updatedTask.message_id).catch(() => null);
+              if (taskMsg) await taskMsg.edit({ embeds: [updatedEmbed], components: updatedButtons ? [updatedButtons] : [] }).catch(() => {});
+            } catch {}
+          }
+
           // 2. Sonra XP / terfi bildirimi (followUp, ilk yanıt zaten gönderildi)
           const promoRole = await checkPromotion(guildId, interaction.guild, uid, uname).catch(() => null);
           if (promoRole) {
@@ -955,14 +954,6 @@ module.exports = {
             `UPDATE task_assignments SET status = 'bekliyor' WHERE task_id = $1 AND user_id = $2`,
             [onayTaskId, targetUserId]
           );
-          // Kullanıcıya DM bildir
-          try {
-            const targetUser = await interaction.client.users.fetch(targetUserId);
-            await targetUser.send({ embeds: [new EmbedBuilder()
-              .setColor(0xff4444).setTitle('❌ Görev Tamamlama Reddedildi')
-              .setDescription(`**${task.title}** görevi için tamamlama isteğin reddedildi. Tekrar deneyebilirsin.`)
-              .setTimestamp()] }).catch(() => {});
-          } catch {}
           // update() → followUp() sırası korunmalı
           try {
             await interaction.update({ components: [] });
@@ -994,15 +985,6 @@ module.exports = {
             const msg = await ch?.messages.fetch(updatedTask.message_id).catch(() => null);
             if (msg) await msg.edit({ embeds: [updatedEmbed], components: updatedButtons ? [updatedButtons] : [] }).catch(() => {});
           }
-        } catch {}
-
-        // Kullanıcıya bildir
-        try {
-          const targetUser = await interaction.client.users.fetch(targetUserId);
-          await targetUser.send({ embeds: [new EmbedBuilder()
-            .setColor(0x44cc88).setTitle('✅ Görev Tamamlama Onaylandı')
-            .setDescription(`**${task.title}** görevi tamamlandı olarak onaylandı!${xpMsg}`)
-            .setTimestamp()] }).catch(() => {});
         } catch {}
 
         // Admin log
@@ -1348,36 +1330,14 @@ async function publishPendingTask(interaction, alreadyReplied = false) {
   }
 
   if (pending.isPrivate) {
-    // Özel görev: her atanan üyeye DM gönder, başarısız olursa kanal mention
-    const dmFailedMembers = [];
-    for (const member of pending.members) {
-      try {
-        const prio = PRIORITY_CONFIG[pending.priority] ?? PRIORITY_CONFIG.orta;
-        const dmEmbed = new EmbedBuilder()
-          .setColor(prio.color)
-          .setTitle(`🔒 Özel Görev: ${pending.title}`)
-          .setDescription(pending.description ?? '*Açıklama yok*')
-          .addFields(
-            { name: '🏆 Puan',    value: `${pending.points ?? 25}`,               inline: true },
-            { name: '⚡ Öncelik', value: `${prio.emoji} ${pending.priority}`,     inline: true },
-            { name: '⏰ Bitiş',   value: pending.dueDate ?? '*Belirtilmedi*',     inline: true },
-          )
-          .setFooter({ text: `Görev #${taskId} · Tamamlamak için sunucuda /my-tasks kullan` })
-          .setTimestamp();
-        await member.send({ embeds: [dmEmbed] });
-      } catch {
-        dmFailedMembers.push(member);
-      }
-    }
-
-    // DM başarısız olanları kanal üzerinden bildir (görev detayı olmadan)
-    if (dmFailedMembers.length && tasksChannelId) {
+    // Özel görev: kanal üzerinden @mention ile bildir (DM yok)
+    if (tasksChannelId) {
       const notifyChannel = interaction.client.channels.cache.get(tasksChannelId);
-      if (notifyChannel) {
-        const mentions = dmFailedMembers.map(m => `<@${m.id}>`).join(' ');
+      if (notifyChannel && pending.members?.length) {
+        const mentions = pending.members.map(m => `<@${m.id}>`).join(' ');
         await notifyChannel.send({
-          content: `🔒 ${mentions}\nSana özel bir görev atandı. Görmek için **/my-tasks** komutunu kullan.`,
-          allowedMentions: { users: dmFailedMembers.map(m => m.id) },
+          content: `🔒 ${mentions}\nSana özel bir görev atandı. Görmek için **\`/my-tasks\`** veya **\`i?mytasks\`** kullan.`,
+          allowedMentions: { users: pending.members.map(m => m.id) },
         }).catch(() => {});
       }
     }
@@ -1427,7 +1387,7 @@ async function publishPendingTask(interaction, alreadyReplied = false) {
   ).catch(() => {});
 
   const recStr = pending.recurrence ? ` · 🔁 ${RECURRENCE_LABELS[pending.recurrence]}` : '';
-  const privateStr = pending.isPrivate ? ' · 🔒 Özel (DM gönderildi)' : '';
+  const privateStr = pending.isPrivate ? ' · 🔒 Özel (Kanal bildirimi gönderildi)' : '';
   const memberCount = pending.members?.length ?? 0;
   const successMsg = { content: `✅ Görev **#${taskId}** yayınlandı! ${memberCount ? `${memberCount} kişiye atandı.` : ''}${recStr}${privateStr}`, flags: MessageFlags.Ephemeral };
 
@@ -1483,18 +1443,6 @@ async function completeTaskAssignment(guildId, guild, task, userId, username) {
       const limitStr = task.xp_limit ? ` · ${tamamSayisi}/${task.xp_limit} tamamlandı` : '';
       xpMsg = `\n⚠️ Zorunlu görev · **+${finalPoints}** puan${limitStr}${newStreak > 1 ? ` · 🔥 ${newStreak} hafta streak` : ''}`;
 
-      // Streak sıfırlandıysa DM gönder
-      if (streakBroken && guild) {
-        try {
-          const dmUser = await guild.client.users.fetch(userId);
-          const { EmbedBuilder: EB } = require('discord.js');
-          await dmUser.send({ embeds: [new EB()
-            .setColor(0xff4444)
-            .setTitle('💔 Seri Bozuldu!')
-            .setDescription(`**${oldStreak} haftalık** serin, geçen haftaki zorunlu görevi tamamlamadığın için sıfırlandı.\n\nDevam et — yeni serin şimdi başlıyor! 💪`)
-            .setTimestamp()] }).catch(() => {});
-        } catch {}
-      }
     }
   } else {
     let capped = false;

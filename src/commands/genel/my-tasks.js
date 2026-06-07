@@ -65,6 +65,9 @@ module.exports = {
       .setColor(0x9966ff)
       .setTimestamp();
 
+    // Gereksinim karşılanan görevleri takip et (buton için)
+    const metTaskIds = new Set();
+
     for (const t of res.rows) {
       const turStr     = t.is_mandatory ? '⚠️ Zorunlu' : '🎯 İsteğe Bağlı';
       const recStr     = t.recurrence ? ` · ${REC_LABEL[t.recurrence] ?? t.recurrence}` : '';
@@ -95,6 +98,10 @@ module.exports = {
           if (result?.progress?.length) {
             progressLine = '\n' + result.progress.join('\n');
           }
+          if (result?.met) {
+            metTaskIds.add(t.id);
+            progressLine += '\n✅ **Gereksinimler karşılandı — tamamlayabilirsin!**';
+          }
         }
       }
 
@@ -120,10 +127,10 @@ module.exports = {
     const aktifGorevler = res.rows.filter(r => r.my_status === 'bekliyor').slice(0, 5);
     const components = aktifGorevler.map(t => {
       const btns = [];
-      if (t.is_private) {
+      if (t.is_private || metTaskIds.has(t.id)) {
         btns.push(
           new ButtonBuilder()
-            .setCustomId(`mytask_complete_${t.id}`)
+            .setCustomId(t.is_private ? `mytask_complete_${t.id}` : `task_complete_${t.id}`)
             .setLabel(`✅ Tamamla`)
             .setStyle(ButtonStyle.Success)
         );

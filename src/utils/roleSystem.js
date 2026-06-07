@@ -614,9 +614,13 @@ async function checkInactivity(client) {
     if (!logChannel) continue;
 
     // Geçen hafta hiç görev yapmayan kullanıcılar
+    // Sorumluluk tamamlayanlar + zorunlu görev tamamlayanlar aktif sayılır
     const activeRes = await pool.query(`
       SELECT DISTINCT user_id FROM rs_completions
       WHERE guild_id = $1 AND week_number = $2 AND year = $3
+      UNION
+      SELECT DISTINCT user_id FROM rs_mandatory
+      WHERE guild_id = $1 AND week_number = $2 AND year = $3 AND completed = TRUE
     `, [guild_id, prevWeek, prevYear]);
     const activeIds = new Set(activeRes.rows.map(r => r.user_id));
 
@@ -650,21 +654,7 @@ async function checkInactivity(client) {
 
       await logChannel.send({ embeds: [embed] }).catch(() => {});
 
-      // Kullanıcıya DM gönder
-      try {
-        const dmUser = await client.users.fetch(user.user_id);
-        const dmEmbed = new EmbedBuilder()
-          .setColor(0xff9900)
-          .setTitle(`⚠️ Uyarı Aldın (#${newWarningCount})`)
-          .setDescription('Geçen hafta hiç görev tamamlamadın. Sunucudaki yetkili sisteminde uyarı aldın.')
-          .addFields(
-            { name: '⚠️ Toplam Uyarı', value: `${newWarningCount}`,      inline: true },
-            { name: '📅 Hafta',         value: `${prevWeek}/${prevYear}`, inline: true },
-          )
-          .setFooter({ text: 'Görevlerini tamamlamaya devam et! 💪' })
-          .setTimestamp();
-        await dmUser.send({ embeds: [dmEmbed] });
-      } catch {} // DM kapalıysa sessizce geç
+      // DM devre dışı
     }
   }
 }

@@ -1,7 +1,8 @@
 const { addMessage, logMessage } = require('../utils/activityTracker');
 const { isStaff } = require('../utils/staffRoles');
 const { isBlocked } = require('../utils/blockedChannels');
-const { getConfig, logPartnership, checkPartnershipTasks } = require('../utils/taskManager');
+const { getConfig, logPartnership, checkPartnershipTasks, notifyTaskReady } = require('../utils/taskManager');
+const { pool } = require('../utils/database');
 const fs   = require('fs');
 const path = require('path');
 
@@ -96,6 +97,15 @@ module.exports = {
 
     const msgScore = await addMessage(guildId, userId, username, channelId, channelName, message.content?.trim() || '');
     await logMessage({ guildId, userId, username, channelId, channelName, content, replyToUserId, replyToUsername, replyToContent, score: msgScore ?? 0 });
+
+    // Her 10 mesajda bir görev gereksinimi kontrolü
+    const msgCount = await pool.query(
+      `SELECT messages FROM activity WHERE guild_id = $1 AND user_id = $2`,
+      [guildId, userId]
+    ).then(r => r.rows[0]?.messages ?? 0).catch(() => 0);
+    if (msgCount % 10 === 0) {
+      notifyTaskReady(message.client, guildId, userId, username).catch(() => {});
+    }
 
     // ── Partnerlik kanalı kontrolü ────────────────────────────
     const partnershipChannelId = await getConfig(guildId, 'partnership_channel');
