@@ -86,6 +86,11 @@ module.exports = {
       sub.setName('forcereassign')
         .setDescription('Aktif görevlere eksik kullanıcıları yeniden ata')
         .addIntegerOption(opt => opt.setName('id').setDescription('Görev ID (boş = tüm aktif görevler)').setRequired(false))
+    )
+    .addSubcommand(sub =>
+      sub.setName('progress')
+        .setDescription('Görevdeki tüm kullanıcıların ilerlemesini göster')
+        .addIntegerOption(opt => opt.setName('id').setDescription('Görev ID').setRequired(true))
     ),
   category: 'yonetici',
 
@@ -426,6 +431,73 @@ module.exports = {
       return interaction.editReply({
         content: `✅ Yeniden atama tamamlandı — toplam **${totalAdded}** kişi eklendi:\n${results.join('\n')}`,
       });
+    }
+
+    // ── progress ──────────────────────────────────────────────
+    if (sub === 'progress') {
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      const { checkRequirements } = require('../../utils/taskManager');
+
+      const taskId = interaction.options.getInteger('id');
+      const task   = await getTask(guildId, taskId);
+      if (!task) return interaction.editReply({ content: `❌ Görev #${taskId} bulunamadı.` });
+
+      const req = task.requirements ?? {};
+      const hasReq = Object.keys(req).length > 0;
+
+      // Tüm atamaları çek
+      const assignments = await pool.query(
+        `SELECT user_id, username, status, assigned_at FROM task_assignments WHERE task_id = $1 ORDER BY status, username`,
+        [taskId]
+      );
+
+      if (!assignments.rows.length) {
+        return interaction.editReply({ content: '📭 Bu göreve henüz kimse atanmamış.' });
+      }
+
+      const STATUS_EMOJI = { bekliyor: '⏳', onay_bekleniyor: '🕐', tamamlandı: '✅', iptal: '❌' };
+      const lines = [];
+
+      for (const a of assignments.rows) {
+        const emoji = STATUS_EMOJI[a.status] ?? '⏳';
+
+        if (a.status === 'tamamlandı') {
+          lines.push(`${emoji} **${a.username}** — Tamamlandı`);
+          continue;
+        }
+
+        if (!hasReq) {
+          lines.push(`${emoji} **${a.username}**`);
+          continue;
+        }
+
+        // İlerleme hesapla
+        const result = await checkRequirements(guildId, a.user_id, a, task).catch(() => null);
+        if (!result) {
+          lines.push(`${emoji} **${a.username}** — *hesaplanamadı*`);
+          continue;
+        }
+
+        const progStr = result.progress.join(' · ') || '*Gereksinim yok*';
+        lines.push(`${emoji} **${a.username}** — ${progStr}`);
+      }
+
+      // Embed 25 field limiti yerine description kullanıyoruz
+      const completed  = assignments.rows.filter(a => a.status === 'tamamlandı').length;
+      const total      = assignments.rows.length;
+      const chunkSize  = 30;
+      const chunks     = [];
+      for (let i = 0; i < lines.length; i += chunkSize) chunks.push(lines.slice(i, i + chunkSize));
+
+      const embeds = chunks.map((chunk, i) =>
+        new EmbedBuilder()
+          .setTitle(i === 0 ? `📊 #${taskId} — ${task.title}` : `📊 #${taskId} — Devam (${i + 1})`)
+          .setColor(0x9966ff)
+          .setDescription(chunk.join('\n'))
+          .setFooter({ text: `${completed}/${total} tamamlandı` })
+      );
+
+      return interaction.editReply({ embeds: embeds.slice(0, 10) });
     }
   },
 };
