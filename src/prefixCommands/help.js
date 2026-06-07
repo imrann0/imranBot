@@ -22,6 +22,16 @@ module.exports = {
           inline: false,
         },
         {
+          name: '📊 İstatistik',
+          value: [
+            '`i?skor` — Kendi skor ve aktivite istatistiklerini gösterir',
+            '`i?skor @kişi` — Başka birinin skorunu gösterir',
+            '',
+            '*Alias: `i?profil`, `i?stats`, `i?xp`*',
+          ].join('\n'),
+          inline: false,
+        },
+        {
           name: '📋 Görevler',
           value: [
             '`i?gorevlerim` — Aktif görevlerini ve ilerlemeni gösterir',

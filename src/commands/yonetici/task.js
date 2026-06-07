@@ -436,66 +436,94 @@ module.exports = {
     // ── progress ──────────────────────────────────────────────
     if (sub === 'progress') {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-      const { checkRequirements } = require('../../utils/taskManager');
+      const { checkRequirements, formatRequirements } = require('../../utils/taskManager');
 
       const taskId = interaction.options.getInteger('id');
       const task   = await getTask(guildId, taskId);
       if (!task) return interaction.editReply({ content: `❌ Görev #${taskId} bulunamadı.` });
 
-      const req = task.requirements ?? {};
+      const req    = task.requirements ?? {};
       const hasReq = Object.keys(req).length > 0;
 
+      // Gereksinim maksimum değerlerini hesapla (yüzde için)
+      const maxVoice  = req.voice_minutes     ?? 0;
+      const maxMsg    = req.messages          ?? 0;
+      const maxPart   = req.partnership_count ?? 0;
+
       // Tüm atamaları çek
-      const assignments = await pool.query(
-        `SELECT user_id, username, status, assigned_at FROM task_assignments WHERE task_id = $1 ORDER BY status, username`,
+      const { rows } = await pool.query(
+        `SELECT user_id, username, status, assigned_at FROM task_assignments WHERE task_id = $1`,
         [taskId]
       );
 
-      if (!assignments.rows.length) {
-        return interaction.editReply({ content: '📭 Bu göreve henüz kimse atanmamış.' });
-      }
+      if (!rows.length) return interaction.editReply({ content: '📭 Bu göreve henüz kimse atanmamış.' });
 
       const STATUS_EMOJI = { bekliyor: '⏳', onay_bekleniyor: '🕐', tamamlandı: '✅', iptal: '❌' };
-      const lines = [];
 
-      for (const a of assignments.rows) {
-        const emoji = STATUS_EMOJI[a.status] ?? '⏳';
-
+      // Her kullanıcı için ilerleme hesapla
+      const entries = [];
+      for (const a of rows) {
         if (a.status === 'tamamlandı') {
-          lines.push(`${emoji} **${a.username}** — Tamamlandı`);
+          entries.push({ a, score: Infinity, line: `✅ **${a.username}** — Tamamlandı` });
           continue;
         }
-
         if (!hasReq) {
-          lines.push(`${emoji} **${a.username}**`);
+          entries.push({ a, score: 0, line: `${STATUS_EMOJI[a.status] ?? '⏳'} **${a.username}**` });
           continue;
         }
-
-        // İlerleme hesapla
         const result = await checkRequirements(guildId, a.user_id, a, task).catch(() => null);
         if (!result) {
-          lines.push(`${emoji} **${a.username}** — *hesaplanamadı*`);
+          entries.push({ a, score: -1, line: `⏳ **${a.username}** — *hesaplanamadı*` });
           continue;
         }
 
-        const progStr = result.progress.join(' · ') || '*Gereksinim yok*';
-        lines.push(`${emoji} **${a.username}** — ${progStr}`);
+        // İlerleme yüzdesini hesapla (sıralama için)
+        let pct = 0;
+        const progParts = [];
+        for (const p of result.progress) {
+          // "🎙️ Ses puanı: 89.7/1080 ❌" formatından değer çıkar
+          const m = p.match(/([\d.]+)\/([\d.]+)/);
+          if (m) {
+            const done = parseFloat(m[1]);
+            const total = parseFloat(m[2]);
+            if (total > 0) pct = Math.max(pct, Math.round((done / total) * 100));
+            progParts.push(p.replace(/\s*(✅|❌)(\s*\(.*?\))?/, '').trim() + ` **(${Math.round((done / total) * 100)}%)**`);
+          } else {
+            progParts.push(p);
+          }
+        }
+
+        entries.push({
+          a,
+          score: pct,
+          line: `${STATUS_EMOJI[a.status] ?? '⏳'} **${a.username}** — ${progParts.join(' · ')}`,
+        });
       }
 
-      // Embed 25 field limiti yerine description kullanıyoruz
-      const completed  = assignments.rows.filter(a => a.status === 'tamamlandı').length;
-      const total      = assignments.rows.length;
-      const chunkSize  = 30;
-      const chunks     = [];
-      for (let i = 0; i < lines.length; i += chunkSize) chunks.push(lines.slice(i, i + chunkSize));
+      // Sırala: tamamlananlar önce, sonra yüzde azalan
+      entries.sort((a, b) => b.score - a.score);
 
-      const embeds = chunks.map((chunk, i) =>
-        new EmbedBuilder()
-          .setTitle(i === 0 ? `📊 #${taskId} — ${task.title}` : `📊 #${taskId} — Devam (${i + 1})`)
-          .setColor(0x9966ff)
-          .setDescription(chunk.join('\n'))
-          .setFooter({ text: `${completed}/${total} tamamlandı` })
-      );
+      const medals = ['🥇', '🥈', '🥉'];
+      const lines  = entries.map((e, i) => {
+        const rank = e.score === Infinity ? (medals[i] ?? `\`${String(i+1).padStart(2,'0')}.\``) : `\`${String(i+1).padStart(2,'0')}.\``;
+        return `${rank} ${e.line}`;
+      });
+
+      const completed = rows.filter(a => a.status === 'tamamlandı').length;
+      const total     = rows.length;
+      const reqLabel  = hasReq ? formatRequirements(req) : '*Gereksinim yok*';
+
+      const chunkSize = 25;
+      const embeds = [];
+      for (let i = 0; i < lines.length; i += chunkSize) {
+        embeds.push(
+          new EmbedBuilder()
+            .setTitle(i === 0 ? `📊 #${taskId} — ${task.title}` : `📊 #${taskId} — Devam`)
+            .setColor(0x9966ff)
+            .setDescription(lines.slice(i, i + chunkSize).join('\n'))
+            .setFooter({ text: `✅ ${completed}/${total} tamamlandı • Hedef: ${reqLabel}` })
+        );
+      }
 
       return interaction.editReply({ embeds: embeds.slice(0, 10) });
     }
