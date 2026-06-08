@@ -289,6 +289,7 @@ async function init() {
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS xp_limit INTEGER DEFAULT NULL`);
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS original_task_id INTEGER DEFAULT NULL`);
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS is_private BOOLEAN DEFAULT FALSE`);
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS type TEXT`);
   await pool.query(`ALTER TABLE message_logs ADD COLUMN IF NOT EXISTS score NUMERIC DEFAULT 0`);
 
   await pool.query(`

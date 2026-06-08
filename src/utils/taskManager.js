@@ -56,23 +56,48 @@ async function checkRequirements(guildId, userId, assignment, task) {
   const progress = [];
   let allMet = true;
 
-  // İsteğe bağlı görevler: zorunlu görev beklenirken geçen süreyi sayma
+  // İsteğe bağlı görevler: AYNI TÜRDE zorunlu görev beklenirken geçen süreyi sayma
+  // Örnek: zorunlu ses görevi varken isteğe bağlı ses görevi sayılmaz
+  //        ama zorunlu partnerlik/ses varken isteğe bağlı mesaj görevi sayılır
   const isOptional = !task.is_mandatory;
-  const mandatoryExcludeVoice = isOptional ? `
+
+  // Hangi türde aktif zorunlu görev var? (dışlama kuralı için)
+  let hasVoiceMandatory = false;
+  let hasMsgMandatory = false;
+  let hasPartnerMandatory = false;
+  if (isOptional) {
+    const mRes = await pool.query(
+      `SELECT t2.type FROM task_assignments ta2
+       JOIN tasks t2 ON t2.id = ta2.task_id
+       WHERE ta2.user_id = $2 AND t2.guild_id = $1
+         AND t2.is_mandatory = true
+         AND ta2.status = 'bekliyor'`,
+      [guildId, userId]
+    );
+    for (const row of mRes.rows) {
+      if (row.type === 'ses' || row.type === 'karma') hasVoiceMandatory = true;
+      if (row.type === 'mesaj' || row.type === 'karma') hasMsgMandatory = true;
+      if (row.type === 'partnerlik') hasPartnerMandatory = true;
+    }
+  }
+
+  const mandatoryExcludeVoice = hasVoiceMandatory ? `
     AND NOT EXISTS (
       SELECT 1 FROM task_assignments ta2
       JOIN tasks t2 ON t2.id = ta2.task_id
       WHERE ta2.user_id = $2 AND t2.guild_id = $1
         AND t2.is_mandatory = true
+        AND t2.type IN ('ses', 'karma')
         AND ta2.status = 'bekliyor'
         AND ta2.assigned_at <= vl.joined_at
     )` : '';
-  const mandatoryExcludeMsg = isOptional ? `
+  const mandatoryExcludeMsg = hasMsgMandatory ? `
     AND NOT EXISTS (
       SELECT 1 FROM task_assignments ta2
       JOIN tasks t2 ON t2.id = ta2.task_id
       WHERE ta2.user_id = $2 AND t2.guild_id = $1
         AND t2.is_mandatory = true
+        AND t2.type IN ('mesaj', 'karma')
         AND ta2.status = 'bekliyor'
         AND ta2.assigned_at <= ml.created_at
     )` : '';
@@ -90,7 +115,8 @@ async function checkRequirements(guildId, userId, assignment, task) {
     const doneScore = Math.round((Number(res.rows[0].total) / 60) * cfg.voice_per_min * 100) / 100;
     const met = doneScore >= req.voice_minutes;
     if (!met) allMet = false;
-    progress.push(`🎙️ Ses puanı: ${doneScore}/${req.voice_minutes} ${met ? '✅' : '❌'}${isOptional && doneScore < req.voice_minutes ? ' *(zorunlu görev beklenirken sayılmadı)*' : ''}`);
+    const blockedNote = isOptional ? (hasVoiceMandatory ? '\n   🚫 *Sayılmıyor — zorunlu ses görevi tamamlanana kadar bekleniyor*' : '\n   ✅ *Sayılıyor*') : '';
+    progress.push(`🎙️ Ses puanı: ${doneScore}/${req.voice_minutes} ${met ? '✅' : '❌'}${blockedNote}`);
   }
 
   if (req.messages) {
@@ -104,18 +130,32 @@ async function checkRequirements(guildId, userId, assignment, task) {
     const doneScore = Math.round(Number(res.rows[0].total) * 100) / 100;
     const met = doneScore >= req.messages;
     if (!met) allMet = false;
-    progress.push(`💬 Mesaj puanı: ${doneScore}/${req.messages} ${met ? '✅' : '❌'}${isOptional && doneScore < req.messages ? ' *(zorunlu görev beklenirken sayılmadı)*' : ''}`);
+    const blockedNote = isOptional ? (hasMsgMandatory ? '\n   🚫 *Sayılmıyor — zorunlu mesaj görevi tamamlanana kadar bekleniyor*' : '\n   ✅ *Sayılıyor*') : '';
+    progress.push(`💬 Mesaj puanı: ${doneScore}/${req.messages} ${met ? '✅' : '❌'}${blockedNote}`);
   }
 
   if (req.partnership_count) {
+    const mandatoryExcludePartnership = hasPartnerMandatory ? `
+      AND NOT EXISTS (
+        SELECT 1 FROM task_assignments ta2
+        JOIN tasks t2 ON t2.id = ta2.task_id
+        WHERE ta2.user_id = $2 AND t2.guild_id = $1
+          AND t2.is_mandatory = true
+          AND t2.type = 'partnerlik'
+          AND ta2.status = 'bekliyor'
+          AND ta2.assigned_at <= pl.created_at
+      )` : '';
     const res = await pool.query(
-      `SELECT COUNT(*) AS total FROM partnership_logs WHERE guild_id = $1 AND user_id = $2 AND created_at >= $3`,
+      `SELECT COUNT(*) AS total FROM partnership_logs pl
+       WHERE pl.guild_id = $1 AND pl.user_id = $2 AND pl.created_at >= $3
+       ${mandatoryExcludePartnership}`,
       [guildId, userId, since]
     );
     const done = parseInt(res.rows[0].total);
     const met = done >= req.partnership_count;
     if (!met) allMet = false;
-    progress.push(`🤝 Partnerlik: ${done}/${req.partnership_count} ${met ? '✅' : '❌'}`);
+    const blockedNote = isOptional ? (hasPartnerMandatory ? '\n   🚫 *Sayılmıyor — zorunlu partnerlik görevi tamamlanana kadar bekleniyor*' : '\n   ✅ *Sayılıyor*') : '';
+    progress.push(`🤝 Partnerlik: ${done}/${req.partnership_count} ${met ? '✅' : '❌'}${blockedNote}`);
   }
 
   return { met: allMet, progress };
@@ -216,6 +256,16 @@ async function checkPartnershipTasks(client, guildId, userId, username, guild) {
       console.error('[checkPartnershipTasks XP]', err);
     }
 
+    // Zorunlu görevler: tüm atamalar tamamlandıysa task-level'ı da kapat
+    if (task.is_mandatory === true) {
+      try {
+        const allAssignments = await getTaskProgress(row.task_id);
+        if (allAssignments.every(a => a.status === 'tamamlandı')) {
+          await updateTask(guildId, row.task_id, { status: 'tamamlandı' });
+        }
+      } catch {}
+    }
+
     // Terfi kontrolü
     try {
       await checkPromotion(guildId, guild, userId, username);
@@ -235,15 +285,15 @@ async function setConfig(guildId, key, value) {
   );
 }
 
-async function createTask({ guildId, title, description, priority, points, startDate, dueDate, requirements, assignedRoles, createdById, createdByUsername, recurrence = null, isMandatory = false, category = null, xpLimit = null, originalTaskId = null, isPrivate = false }) {
+async function createTask({ guildId, title, description, priority, points, startDate, dueDate, requirements, assignedRoles, createdById, createdByUsername, recurrence = null, isMandatory = false, category = null, xpLimit = null, originalTaskId = null, isPrivate = false, type = null }) {
   const req = parseRequirements(requirements);
   const rolesJson = JSON.stringify(assignedRoles ?? []);
   const nextRec = recurrence ? calcNextRecurrence(recurrence) : null;
 
   const res = await pool.query(`
-    INSERT INTO tasks (guild_id, title, description, priority, points, start_date, due_date, requirements, assigned_role_ids, created_by_id, created_by_username, recurrence, next_recurrence, is_mandatory, category, xp_limit, original_task_id, is_private)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING id
-  `, [guildId, title, description ?? null, priority, points ?? 25, startDate ?? null, dueDate ?? null, JSON.stringify(req), rolesJson, createdById, createdByUsername, recurrence, nextRec, isMandatory, category ?? null, xpLimit ?? null, originalTaskId ?? null, isPrivate]);
+    INSERT INTO tasks (guild_id, title, description, priority, points, start_date, due_date, requirements, assigned_role_ids, created_by_id, created_by_username, recurrence, next_recurrence, is_mandatory, category, xp_limit, original_task_id, is_private, type)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING id
+  `, [guildId, title, description ?? null, priority, points ?? 25, startDate ?? null, dueDate ?? null, JSON.stringify(req), rolesJson, createdById, createdByUsername, recurrence, nextRec, isMandatory, category ?? null, xpLimit ?? null, originalTaskId ?? null, isPrivate, type ?? null]);
 
   return res.rows[0].id;
 }
@@ -475,6 +525,7 @@ async function checkRecurringTasks(client) {
         xpLimit: task.xp_limit ?? null,
         isPrivate: task.is_private ?? false,
         originalTaskId: task.original_task_id ?? task.id, // Serinin kök ID'si
+        type: task.type ?? null,
       });
 
       const assignedRoles = task.assigned_role_ids ?? [];

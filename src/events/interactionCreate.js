@@ -1318,6 +1318,7 @@ async function publishPendingTask(interaction, alreadyReplied = false) {
     category: pending.category ?? null,
     xpLimit: pending.xpLimit ?? null,
     isPrivate: pending.isPrivate ?? false,
+    type: pending.type ?? null,
   });
 
   // Özel görev → her zaman assign et (DM gönderilen kişiler tamamlayabilmeli)

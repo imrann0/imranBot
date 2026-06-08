@@ -293,18 +293,6 @@ module.exports = {
 
       // Terfi kontrolü — admin tamamlamada da çalışmalı
       const promoRole = await checkPromotion(guildId, interaction.guild, uid, uname).catch(() => null);
-      if (promoRole) {
-        try {
-          const targetUser = await interaction.client.users.fetch(uid);
-          await targetUser.send({
-            embeds: [new EmbedBuilder()
-              .setColor(0xffd700)
-              .setTitle('🎉 Terfi Şartlarını Karşıladın!')
-              .setDescription(`**${task.title}** görevi tamamlandı. <@&${promoRole.role_id}> için terfi şartlarını karşıladın! Sunucuya gidip "Terfi Talep Et" butonuna bas.`)
-              .setTimestamp()],
-          });
-        } catch {}
-      }
 
       return interaction.reply({
         content: `✅ **${uname}**, görev **#${taskId}** tamamlandı · ${pointMsg}${promoRole ? `\n🎉 Kullanıcı terfi şartlarını karşıladı → <@&${promoRole.role_id}>` : ''}`,

@@ -330,8 +330,15 @@ async function completeMandatoryFromTask(guildId, userId, username) {
   // Bug fix: 53 haftalı yılları destekler
   const user = await getUser(guildId, userId);
   const { week: prevWeek, year: prevYear } = getPrevWeekInfo();
-  const wasActive = user?.last_active_week === prevWeek && user?.last_active_year === prevYear;
   const oldStreak = user?.streak ?? 0;
+
+  // Bu hafta zaten zorunlu görev tamamlandıysa streak'e dokunma (birden fazla zorunlu görev senaryosu)
+  const alreadyThisWeek = user?.last_active_week === week && user?.last_active_year === year;
+  if (alreadyThisWeek) {
+    return { newStreak: oldStreak, streakBroken: false, oldStreak };
+  }
+
+  const wasActive = user?.last_active_week === prevWeek && user?.last_active_year === prevYear;
   const newStreak = wasActive ? oldStreak + 1 : 1;
   // Streak sıfırlandı mı? (önceki streak > 1 iken bu hafta break oldu)
   const streakBroken = !wasActive && oldStreak > 1;
