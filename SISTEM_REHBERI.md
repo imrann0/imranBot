@@ -110,11 +110,9 @@ Yetkililerin katılıp katılmamakta serbest olduğu görevlerdir.
 
 ### 5.4 Özel Görevler 🔒
 
-Görev kanalında yayınlanmaz — atanan kişilere **DM** olarak gönderilir.
+Görev kanalında yayınlanmaz — atanan kişilere **görev kanalı üzerinden `@mention`** ile bildirim gönderilir.
 
-- Atanan kişi DM'de görev bilgilerini alır
-- DM almak için Discord ayarlarında "Sunucu üyelerinden DM al" açık olmalı
-- **DM kapalıysa** → görev kanalına `@mention` ile bildirim gönderilir: *"Sana özel bir görev atandı, /my-tasks kullan"*
+- Atanan kişiler görev kanalında `@mention` ile bildirim alır: *"Sana özel bir görev atandı, /my-tasks kullan"*
 - Tamamlamak için `/my-tasks` komutuna gidip butona basar
 - `/my-tasks` listesinde `🔒 Özel` etiketi ile görünür
 - Görev kanalı ayarlanmamış olsa bile özel görev oluşturulabilir
@@ -252,7 +250,7 @@ Bir kişi terfi için şunları karşılamalı:
 Zorunlu görevi üst üste tamamlanan hafta sayısıdır.
 
 - Her hafta zorunlu görev tamamlanırsa streak artar 🔥
-- Bir hafta atlanırsa streak sıfırlanır ve kullanıcıya **DM bildirimi** gönderilir
+- Bir hafta atlanırsa streak sıfırlanır
 - `/staff status` ekranında görünür
 
 ---
@@ -276,7 +274,7 @@ Partnerlik sistemi, yetkililerin başka sunucularla yaptığı iş birliklerini 
 1. Admin `/partnership setup #kanal` ile bir partnerlik kanalı tanımlar
 2. O kanala **bot olmayan** herhangi biri mesaj attığında sistem bunu otomatik olarak kaydeder
 3. Kişinin partnerlik sayısı artar
-4. Partnerlik görevine atanan kişi gerekli sayıya ulaştığında görev **otomatik tamamlanır** ve kullanıcıya DM gider
+4. Partnerlik görevine atanan kişi gerekli sayıya ulaştığında görev **otomatik tamamlanır**
 
 ### 7.2 Komutlar
 
@@ -458,7 +456,7 @@ Panel Kanalı → [➕ Görev Oluştur]
     ├── Şablon kaydet
     └── Yayınla ✅
         ├── Herkese açık → görev kanalında yayınlanır
-        └── Özel → atananlara DM gönderilir
+        └── Özel → atananlara görev kanalında @mention bildirimi gönderilir
 ```
 
 ---
