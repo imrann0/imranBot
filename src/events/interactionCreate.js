@@ -452,8 +452,8 @@ module.exports = {
         if (task.status === 'iptal') return interaction.update({ content: `❌ Bu görev zaten iptal edilmiş.`, embeds: [], components: [] });
 
         const { rowCount: assignCount } = await pool.query(
-          `DELETE FROM task_assignments WHERE task_id = $1 AND guild_id = $2 AND status NOT IN ('tamamlandı')`,
-          [taskId, guildId]
+          `DELETE FROM task_assignments WHERE task_id = $1 AND status NOT IN ('tamamlandı')`,
+          [taskId]
         );
 
         await pool.query(
@@ -959,6 +959,10 @@ module.exports = {
         } else if (action === 'cancel') {
           try {
             await updateTask(guildId, taskId, { status: 'iptal' });
+            await pool.query(
+              `DELETE FROM task_assignments WHERE task_id = $1 AND status NOT IN ('tamamlandı')`,
+              [taskId]
+            );
           } catch (err) {
             console.error('[task_cancel]', err);
             return interaction.reply({ content: '❌ İptal işlemi başarısız oldu, tekrar dene.', flags: MessageFlags.Ephemeral });
