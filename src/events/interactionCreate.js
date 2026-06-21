@@ -705,6 +705,20 @@ module.exports = {
           ).setTimestamp()
         ).catch(() => {});
 
+        // Görev kanalındaki ana embed'i güncelle
+        const updatedTask2 = await getTask(guildId, taskId);
+        if (updatedTask2?.message_id && updatedTask2?.channel_id) {
+          try {
+            const taskCh2 = interaction.client.channels.cache.get(updatedTask2.channel_id);
+            const taskMsg2 = await taskCh2?.messages.fetch(updatedTask2.message_id).catch(() => null);
+            if (taskMsg2) {
+              const updEmbed2 = await buildTaskEmbed(updatedTask2);
+              const updBtns2 = buildTaskButtons(updatedTask2.id, updatedTask2.status, updatedTask2);
+              await taskMsg2.edit({ content: `✅ **Bu görev tamamlandı.**`, embeds: [updEmbed2], components: updBtns2 ? [updBtns2] : [] }).catch(() => {});
+            }
+          } catch {}
+        }
+
         const promoRole = await checkPromotion(guildId, interaction.guild, uid, uname).catch(() => null);
         if (promoRole) {
           const promoRow = new ActionRowBuilder().addComponents(
@@ -867,14 +881,16 @@ module.exports = {
           const updatedTask = await getTask(guildId, taskId);
           const updatedEmbed = await buildTaskEmbed(updatedTask);
           const updatedButtons = buildTaskButtons(updatedTask.id, updatedTask.status, updatedTask);
-          await interaction.update({ embeds: [updatedEmbed], components: updatedButtons ? [updatedButtons] : [] });
+          await interaction.update({ content: `✅ **Bu görev tamamlandı.**`, embeds: [updatedEmbed], components: updatedButtons ? [updatedButtons] : [] });
 
-          // Görev kanalındaki ana embed'i de güncelle (/my-tasks üzerinden tamamlandıysa)
+          // Görev kanalındaki ana embed'i de güncelle (task channel'dan tamamlandıysa zaten aynı mesaj; /my-tasks'tan geldiyse ayrıca güncelle)
           if (updatedTask.message_id && updatedTask.channel_id) {
             try {
               const taskCh = interaction.client.channels.cache.get(updatedTask.channel_id);
               const taskMsg = await taskCh?.messages.fetch(updatedTask.message_id).catch(() => null);
-              if (taskMsg) await taskMsg.edit({ embeds: [updatedEmbed], components: updatedButtons ? [updatedButtons] : [] }).catch(() => {});
+              if (taskMsg && taskMsg.id !== interaction.message?.id) {
+                await taskMsg.edit({ content: `✅ **Bu görev tamamlandı.**`, embeds: [updatedEmbed], components: updatedButtons ? [updatedButtons] : [] }).catch(() => {});
+              }
             } catch {}
           }
 
@@ -923,7 +939,12 @@ module.exports = {
             .setTimestamp()
           ).catch(() => {});
         }
-        return interaction.update({ embeds: [embed], components: buttons ? [buttons] : [] });
+        const msgContent = updated.status === 'iptal'
+          ? `❌ **Bu görev iptal edildi.**`
+          : updated.status === 'tamamlandı'
+            ? `✅ **Bu görev tamamlandı.**`
+            : null;
+        return interaction.update({ content: msgContent, embeds: [embed], components: buttons ? [buttons] : [] });
       }
 
       // ── Görev tamamlama onayı (admin) ────────────────────────
@@ -1414,7 +1435,12 @@ async function refreshTaskEmbed(client, guildId, taskId) {
     if (!msg) return;
     const embed   = await buildTaskEmbed(task);
     const buttons = buildTaskButtons(taskId, task.status, task);
-    await msg.edit({ embeds: [embed], components: buttons ? [buttons] : [] });
+    const msgContent = task.status === 'iptal'
+      ? `❌ **Bu görev iptal edildi.**`
+      : task.status === 'tamamlandı'
+        ? `✅ **Bu görev tamamlandı.**`
+        : null;
+    await msg.edit({ content: msgContent, embeds: [embed], components: buttons ? [buttons] : [] });
   } catch {}
 }
 

@@ -1,4 +1,4 @@
-const { EmbedBuilder } = require('discord.js');
+const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { pool } = require('../utils/database');
 const { checkRequirements } = require('../utils/taskManager');
 
@@ -40,6 +40,8 @@ module.exports = {
       .setColor(0x9966ff)
       .setTimestamp();
 
+    const metTaskIds = new Set();
+
     for (const t of res.rows) {
       const turStr = t.is_mandatory ? '⚠️ Zorunlu' : '🎯 İsteğe Bağlı';
       const recStr = t.recurrence ? ` · ${REC_LABEL[t.recurrence] ?? t.recurrence}` : '';
@@ -58,6 +60,10 @@ module.exports = {
         if (result?.progress?.length) {
           progressLine = '\n' + result.progress.join('\n');
         }
+        if (result?.met) {
+          metTaskIds.add(t.id);
+          progressLine += '\n✅ **Gereksinimler karşılandı — tamamlayabilirsin!**';
+        }
       }
 
       embed.addFields({
@@ -67,8 +73,22 @@ module.exports = {
       });
     }
 
-    embed.setFooter({ text: `${res.rows.length} aktif görev` });
+    embed.setFooter({ text: `${res.rows.length} aktif görev • bugün saat ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}` });
 
-    await message.reply({ embeds: [embed] });
+    // Tamamla butonları — sadece gereksinimler karşılanan görevler için
+    const components = [];
+    if (metTaskIds.size > 0) {
+      const btns = [...metTaskIds].map(id =>
+        new ButtonBuilder()
+          .setCustomId(`mytask_complete_${id}`)
+          .setLabel(`✅ #${id} Tamamla`)
+          .setStyle(ButtonStyle.Success)
+      );
+      for (let i = 0; i < btns.length; i += 5) {
+        components.push(new ActionRowBuilder().addComponents(...btns.slice(i, i + 5)));
+      }
+    }
+
+    await message.reply({ embeds: [embed], components });
   },
 };

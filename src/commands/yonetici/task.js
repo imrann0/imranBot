@@ -92,6 +92,11 @@ module.exports = {
       sub.setName('progress')
         .setDescription('Görevdeki tüm kullanıcıların ilerlemesini göster')
         .addIntegerOption(opt => opt.setName('id').setDescription('Görev ID').setRequired(true))
+    )
+    .addSubcommand(sub =>
+      sub.setName('delete')
+        .setDescription('Görevi iptal eder ve tüm atamalardan kaldırır')
+        .addIntegerOption(opt => opt.setName('id').setDescription('Görev ID').setRequired(true))
     ),
   category: 'yonetici',
 
@@ -551,6 +556,35 @@ module.exports = {
       }
 
       return interaction.editReply({ embeds: embeds.slice(0, 10) });
+    }
+
+    // ── delete ────────────────────────────────────────────────
+    if (sub === 'delete') {
+      const taskId = interaction.options.getInteger('id');
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+      const { rows: taskRows } = await pool.query(
+        `SELECT id, title, status FROM tasks WHERE id = $1 AND guild_id = $2`,
+        [taskId, guildId]
+      );
+      if (!taskRows.length) return interaction.editReply({ content: `❌ #${taskId} ID'li görev bulunamadı.` });
+
+      const task = taskRows[0];
+      if (task.status === 'iptal') return interaction.editReply({ content: `❌ Bu görev zaten iptal edilmiş.` });
+
+      const { rowCount: assignCount } = await pool.query(
+        `DELETE FROM task_assignments WHERE task_id = $1 AND guild_id = $2 AND status NOT IN ('tamamlandı')`,
+        [taskId, guildId]
+      );
+
+      await pool.query(
+        `UPDATE tasks SET status = 'iptal', updated_at = NOW() WHERE id = $1 AND guild_id = $2`,
+        [taskId, guildId]
+      );
+
+      return interaction.editReply({
+        content: `✅ **#${taskId} — ${task.title}** görevi iptal edildi.\n📤 ${assignCount} aktif atama kaldırıldı.`,
+      });
     }
   },
 };

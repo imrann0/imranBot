@@ -604,7 +604,7 @@ async function checkRecurringTasks(client) {
           if (msg) {
             const expiredTask = await getTask(guildId, task.id);
             const expiredEmbed = await buildTaskEmbed(expiredTask);
-            await msg.edit({ embeds: [expiredEmbed], components: [] }).catch(() => {});
+            await msg.edit({ content: `✅ **Bu görev tamamlandı.**`, embeds: [expiredEmbed], components: [] }).catch(() => {});
           }
         }
       }
