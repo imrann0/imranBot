@@ -276,26 +276,6 @@ async function checkPartnershipTasks(client, guildId, userId, username, guild) {
       ).setTimestamp();
     sendTaskLog(client, guildId, partnerEmbed, userId).catch(() => {});
 
-    // Görev kanalına bildirim
-    try {
-      const tasksChId = await getConfig(guildId, 'task_tasks_channel');
-      if (tasksChId) {
-        const tasksCh = client.channels.cache.get(tasksChId);
-        if (tasksCh) {
-          await tasksCh.send({
-            content: `<@${userId}>`,
-            embeds: [new EmbedBuilder()
-              .setColor(0x44cc88)
-              .setTitle('✅ Görev Tamamlandı')
-              .setDescription(`**#${task.id} — ${row.title ?? task.id}** görevini tamamladı!`)
-              .setTimestamp()
-            ],
-            allowedMentions: { users: [userId] },
-          });
-        }
-      }
-    } catch {}
-
     // Terfi kontrolü
     try {
       await checkPromotion(guildId, guild, userId, username);

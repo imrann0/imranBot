@@ -543,15 +543,19 @@ module.exports = {
       const total     = rows.length;
       const reqLabel  = hasReq ? formatRequirements(req) : '*Gereksinim yok*';
 
+      const STATUS_LABEL = { bekliyor: '⏳ Bekliyor', devam: '🔄 Devam', tamamlandı: '✅ Tamamlandı', iptal: '❌ İptal' };
+      const taskStatusStr = STATUS_LABEL[task.status] ?? task.status;
+      const dueStr = task.due_date ? ` • ⏰ ${task.due_date}` : '';
+
       const chunkSize = 25;
       const embeds = [];
       for (let i = 0; i < lines.length; i += chunkSize) {
         embeds.push(
           new EmbedBuilder()
             .setTitle(i === 0 ? `📊 #${taskId} — ${task.title}` : `📊 #${taskId} — Devam`)
-            .setColor(0x9966ff)
+            .setColor(task.status === 'iptal' ? 0x888888 : task.status === 'tamamlandı' ? 0x44cc88 : 0x9966ff)
             .setDescription(lines.slice(i, i + chunkSize).join('\n'))
-            .setFooter({ text: `✅ ${completed}/${total} tamamlandı • Hedef: ${reqLabel}` })
+            .setFooter({ text: `${taskStatusStr}${dueStr} • ✅ ${completed}/${total} tamamlandı • Hedef: ${reqLabel}` })
         );
       }
 

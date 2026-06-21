@@ -1544,28 +1544,6 @@ async function completeTaskAssignment(guildId, guild, task, userId, username, cl
     }
   }
 
-  // Görev kanalına tamamlanma bildirimi gönder
-  if (client) {
-    try {
-      const tasksChannelId = await getConfig(guildId, 'task_tasks_channel');
-      if (tasksChannelId) {
-        const tasksCh = client.channels.cache.get(tasksChannelId);
-        if (tasksCh) {
-          await tasksCh.send({
-            content: `<@${userId}>`,
-            embeds: [new EmbedBuilder()
-              .setColor(0x44cc88)
-              .setTitle('✅ Görev Tamamlandı')
-              .setDescription(`**#${task.id} — ${task.title}** görevini tamamladı!${xpMsg}`)
-              .setTimestamp()
-            ],
-            allowedMentions: { users: [userId] },
-          });
-        }
-      }
-    } catch {}
-  }
-
   return { xpMsg };
 }
 
