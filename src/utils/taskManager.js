@@ -178,7 +178,7 @@ async function checkPartnershipTasks(client, guildId, userId, username, guild) {
   // Bu kullanıcıya atanmış bekliyor durumdaki partnerlik görevleri
   const res = await pool.query(`
     SELECT ta.*, t.requirements, t.points, t.priority, t.is_mandatory, t.xp_limit,
-           t.original_task_id, t.category, t.guild_id
+           t.original_task_id, t.category, t.guild_id, t.title
     FROM task_assignments ta
     JOIN tasks t ON t.id = ta.task_id
     WHERE ta.user_id = $1 AND t.guild_id = $2
@@ -265,6 +265,36 @@ async function checkPartnershipTasks(client, guildId, userId, username, guild) {
         }
       } catch {}
     }
+
+    // Admin log: partnerlik görevi tamamlandı
+    const partnerEmbed = new EmbedBuilder()
+      .setColor(0x44cc88).setTitle('✅ Görev Tamamlandı')
+      .addFields(
+        { name: '📌 Görev', value: `#${task.id} — ${row.title ?? task.id}`, inline: true },
+        { name: '👤 Kullanıcı', value: `<@${userId}> (${username})`, inline: true },
+        { name: '📝 Tür', value: '🤝 Partnerlik (Otomatik)', inline: true },
+      ).setTimestamp();
+    sendTaskLog(client, guildId, partnerEmbed, userId).catch(() => {});
+
+    // Görev kanalına bildirim
+    try {
+      const tasksChId = await getConfig(guildId, 'task_tasks_channel');
+      if (tasksChId) {
+        const tasksCh = client.channels.cache.get(tasksChId);
+        if (tasksCh) {
+          await tasksCh.send({
+            content: `<@${userId}>`,
+            embeds: [new EmbedBuilder()
+              .setColor(0x44cc88)
+              .setTitle('✅ Görev Tamamlandı')
+              .setDescription(`**#${task.id} — ${row.title ?? task.id}** görevini tamamladı!`)
+              .setTimestamp()
+            ],
+            allowedMentions: { users: [userId] },
+          });
+        }
+      }
+    } catch {}
 
     // Terfi kontrolü
     try {
@@ -719,19 +749,22 @@ function buildTaskButtons(taskId, status, task = null) {
 }
 
 // ── Admin log kanalı ──────────────────────────────────────────
-async function sendTaskLog(client, guildId, embed) {
+async function sendTaskLog(client, guildId, embed, mentionUserId = null) {
   try {
     const channelId = await getConfig(guildId, 'task_log_channel');
     if (!channelId) return;
     const channel = client.channels.cache.get(channelId);
     if (!channel) return;
-    // Bot'un o kanalda yazma yetkisi var mı?
     const me = channel.guild?.members?.me;
     if (me && !channel.permissionsFor(me)?.has('SendMessages')) {
       console.warn(`[sendTaskLog] Bot'un log kanalında (${channelId}) yazma yetkisi yok.`);
       return;
     }
-    await channel.send({ embeds: [embed] });
+    await channel.send({
+      content: mentionUserId ? `<@${mentionUserId}>` : null,
+      embeds: [embed],
+      allowedMentions: mentionUserId ? { users: [mentionUserId] } : {},
+    });
   } catch (err) {
     console.error('[sendTaskLog]', err.message);
   }

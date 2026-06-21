@@ -431,6 +431,45 @@ module.exports = {
       }
 
       // ── Şablon sil ────────────────────────────────────────
+      // ── Görev silme onayı ────────────────────────────────────
+      if (customId.startsWith('task_delete_confirm_') || customId.startsWith('task_delete_cancel_')) {
+        const isConfirm = customId.startsWith('task_delete_confirm_');
+        const taskId = parseInt(customId.replace(isConfirm ? 'task_delete_confirm_' : 'task_delete_cancel_', ''));
+        if (isNaN(taskId)) return interaction.update({ content: '❌ Geçersiz görev ID.', embeds: [], components: [] });
+
+        if (!isConfirm) {
+          return interaction.update({ content: '❌ Silme işlemi iptal edildi.', embeds: [], components: [] });
+        }
+
+        const guildId = interaction.guild.id;
+        const { rows: taskRows } = await pool.query(
+          `SELECT id, title, status FROM tasks WHERE id = $1 AND guild_id = $2`,
+          [taskId, guildId]
+        );
+        if (!taskRows.length) return interaction.update({ content: `❌ #${taskId} ID'li görev bulunamadı.`, embeds: [], components: [] });
+
+        const task = taskRows[0];
+        if (task.status === 'iptal') return interaction.update({ content: `❌ Bu görev zaten iptal edilmiş.`, embeds: [], components: [] });
+
+        const { rowCount: assignCount } = await pool.query(
+          `DELETE FROM task_assignments WHERE task_id = $1 AND guild_id = $2 AND status NOT IN ('tamamlandı')`,
+          [taskId, guildId]
+        );
+
+        await pool.query(
+          `UPDATE tasks SET status = 'iptal', updated_at = NOW() WHERE id = $1 AND guild_id = $2`,
+          [taskId, guildId]
+        );
+
+        // Kanal embed'ini de güncelle
+        await refreshTaskEmbed(interaction.client, guildId, taskId).catch(() => {});
+
+        return interaction.update({
+          content: `🗑️ **#${taskId} — ${task.title}** görevi silindi.\n📤 ${assignCount} aktif atama kaldırıldı.`,
+          embeds: [], components: [],
+        });
+      }
+
       if (customId.startsWith('task_template_delete_')) {
         const tplId = parseInt(customId.replace('task_template_delete_', ''));
         if (isNaN(tplId)) return interaction.reply({ content: '❌ Geçersiz şablon ID.', flags: MessageFlags.Ephemeral });
@@ -690,7 +729,7 @@ module.exports = {
 
         let xpMsg = '';
         try {
-          ({ xpMsg } = await completeTaskAssignment(guildId, interaction.guild, task, uid, uname));
+          ({ xpMsg } = await completeTaskAssignment(guildId, interaction.guild, task, uid, uname, interaction.client));
         } catch (err) {
           console.error('[mytask_complete completeTaskAssignment]', err);
           return interaction.reply({ content: '❌ Görev tamamlanırken hata oluştu. Tekrar dene.', flags: MessageFlags.Ephemeral });
@@ -702,7 +741,7 @@ module.exports = {
           .addFields(
             { name: '📌 Görev', value: `#${task.id} — ${task.title}`, inline: true },
             { name: '👤 Kullanıcı', value: `<@${uid}> (${uname})`, inline: true },
-          ).setTimestamp()
+          ).setTimestamp(), uid
         ).catch(() => {});
 
         // Görev kanalındaki ana embed'i güncelle
@@ -862,7 +901,7 @@ module.exports = {
           // Ortak XP mantığı (checkXpLimit → updateAssignment → puan ver → auto-close)
           let xpMsg = '';
           try {
-            ({ xpMsg } = await completeTaskAssignment(guildId, interaction.guild, task, uid, uname));
+            ({ xpMsg } = await completeTaskAssignment(guildId, interaction.guild, task, uid, uname, interaction.client));
           } catch (err) {
             console.error('[task_complete completeTaskAssignment]', err);
             return interaction.update({ content: '❌ Görev tamamlanırken hata oluştu. Tekrar dene.', components: [], embeds: [] });
@@ -874,7 +913,7 @@ module.exports = {
             .addFields(
               { name: '📌 Görev', value: `#${task.id} — ${task.title}`, inline: true },
               { name: '👤 Kullanıcı', value: `<@${uid}> (${uname})`, inline: true },
-            ).setTimestamp()
+            ).setTimestamp(), uid
           ).catch(() => {});
 
           // 1. Önce embed'i güncelle — interaction'a ilk yanıt bu olmalı
@@ -988,7 +1027,7 @@ module.exports = {
 
         let xpMsg = '';
         try {
-          ({ xpMsg } = await completeTaskAssignment(guildId, interaction.guild, task, targetUserId, targetUsername));
+          ({ xpMsg } = await completeTaskAssignment(guildId, interaction.guild, task, targetUserId, targetUsername, interaction.client));
         } catch (err) {
           console.error('[task_onay_onayla]', err);
           return interaction.update({ content: '❌ Onaylama sırasında hata oluştu.', components: [] });
@@ -1004,7 +1043,7 @@ module.exports = {
           if (updatedTask.message_id && updatedTask.channel_id) {
             const ch = interaction.client.channels.cache.get(updatedTask.channel_id);
             const msg = await ch?.messages.fetch(updatedTask.message_id).catch(() => null);
-            if (msg) await msg.edit({ embeds: [updatedEmbed], components: updatedButtons ? [updatedButtons] : [] }).catch(() => {});
+            if (msg) await msg.edit({ content: `✅ **Bu görev tamamlandı.**`, embeds: [updatedEmbed], components: updatedButtons ? [updatedButtons] : [] }).catch(() => {});
           }
         } catch {}
 
@@ -1015,7 +1054,7 @@ module.exports = {
             { name: '📌 Görev', value: `#${task.id} — ${task.title}`, inline: true },
             { name: '👤 Kullanıcı', value: `<@${targetUserId}>`, inline: true },
             { name: '✋ Onaylayan', value: `<@${interaction.user.id}>`, inline: true },
-          ).setTimestamp()
+          ).setTimestamp(), targetUserId
         ).catch(() => {});
 
         return interaction.followUp({ content: `✅ <@${targetUserId}> için görev onaylandı.${xpMsg}`, flags: MessageFlags.Ephemeral });
@@ -1446,7 +1485,7 @@ async function refreshTaskEmbed(client, guildId, taskId) {
 
 // ── Görev tamamlama — ortak XP mantığı ──────────────────────
 // task_complete_ ve mytask_complete_ butonlarının tekrar eden kodunu buraya topladık
-async function completeTaskAssignment(guildId, guild, task, userId, username) {
+async function completeTaskAssignment(guildId, guild, task, userId, username, client = null) {
   const basePoints = task.points ?? PRIORITY_POINTS[task.priority] ?? 25;
 
   // XP limit kontrolü updateAssignment'tan ÖNCE yapılmalı (off-by-one önleme)
@@ -1499,6 +1538,28 @@ async function completeTaskAssignment(guildId, guild, task, userId, username) {
     if (allAssignments.every(a => a.status === 'tamamlandı')) {
       await updateTask(guildId, task.id, { status: 'tamamlandı' });
     }
+  }
+
+  // Görev kanalına tamamlanma bildirimi gönder
+  if (client) {
+    try {
+      const tasksChannelId = await getConfig(guildId, 'task_tasks_channel');
+      if (tasksChannelId) {
+        const tasksCh = client.channels.cache.get(tasksChannelId);
+        if (tasksCh) {
+          await tasksCh.send({
+            content: `<@${userId}>`,
+            embeds: [new EmbedBuilder()
+              .setColor(0x44cc88)
+              .setTitle('✅ Görev Tamamlandı')
+              .setDescription(`**#${task.id} — ${task.title}** görevini tamamladı!${xpMsg}`)
+              .setTimestamp()
+            ],
+            allowedMentions: { users: [userId] },
+          });
+        }
+      }
+    } catch {}
   }
 
   return { xpMsg };

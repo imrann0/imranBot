@@ -561,30 +561,45 @@ module.exports = {
     // ── delete ────────────────────────────────────────────────
     if (sub === 'delete') {
       const taskId = interaction.options.getInteger('id');
-      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
       const { rows: taskRows } = await pool.query(
         `SELECT id, title, status FROM tasks WHERE id = $1 AND guild_id = $2`,
         [taskId, guildId]
       );
-      if (!taskRows.length) return interaction.editReply({ content: `❌ #${taskId} ID'li görev bulunamadı.` });
+      if (!taskRows.length) return interaction.reply({ content: `❌ #${taskId} ID'li görev bulunamadı.`, flags: MessageFlags.Ephemeral });
 
       const task = taskRows[0];
-      if (task.status === 'iptal') return interaction.editReply({ content: `❌ Bu görev zaten iptal edilmiş.` });
+      if (task.status === 'iptal') return interaction.reply({ content: `❌ Bu görev zaten iptal edilmiş.`, flags: MessageFlags.Ephemeral });
 
-      const { rowCount: assignCount } = await pool.query(
-        `DELETE FROM task_assignments WHERE task_id = $1 AND guild_id = $2 AND status NOT IN ('tamamlandı')`,
-        [taskId, guildId]
+      const { rows: assignRows } = await pool.query(
+        `SELECT COUNT(*) AS cnt FROM task_assignments WHERE task_id = $1 AND status NOT IN ('tamamlandı')`,
+        [taskId]
+      );
+      const activeCount = parseInt(assignRows[0]?.cnt ?? 0);
+
+      const confirmEmbed = new EmbedBuilder()
+        .setColor(0xff4444)
+        .setTitle('⚠️ Görevi Silmek İstediğine Emin misin?')
+        .addFields(
+          { name: '📌 Görev', value: `#${taskId} — ${task.title}`, inline: true },
+          { name: '👥 Aktif Atama', value: `${activeCount} kişi`, inline: true },
+        )
+        .setDescription('Bu işlem geri alınamaz. Görev iptal edilecek ve tüm aktif atamalar kaldırılacak.');
+
+      const confirmRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`task_delete_confirm_${taskId}`)
+          .setLabel('Evet, Sil')
+          .setEmoji('🗑️')
+          .setStyle(ButtonStyle.Danger),
+        new ButtonBuilder()
+          .setCustomId(`task_delete_cancel_${taskId}`)
+          .setLabel('İptal')
+          .setEmoji('❌')
+          .setStyle(ButtonStyle.Secondary),
       );
 
-      await pool.query(
-        `UPDATE tasks SET status = 'iptal', updated_at = NOW() WHERE id = $1 AND guild_id = $2`,
-        [taskId, guildId]
-      );
-
-      return interaction.editReply({
-        content: `✅ **#${taskId} — ${task.title}** görevi iptal edildi.\n📤 ${assignCount} aktif atama kaldırıldı.`,
-      });
+      return interaction.reply({ embeds: [confirmEmbed], components: [confirmRow], flags: MessageFlags.Ephemeral });
     }
   },
 };
