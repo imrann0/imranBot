@@ -602,9 +602,13 @@ async function checkRecurringTasks(client) {
         }
       }
 
-      // Bug fix: Mevcut dönem görevini kapat — klon bir sonraki dönemi devralır
-      // Sorgu filtresi 'tamamlandı' içerdiği için bu görev bir daha tetiklenmez
+      // Mevcut dönem görevini kapat — klon bir sonraki dönemi devralır
       await pool.query(`UPDATE tasks SET status = 'tamamlandı', updated_at = NOW() WHERE id = $1`, [task.id]);
+      // Tamamlamayan atamaları iptal et (onay_bekleniyor dokunulmaz)
+      await pool.query(
+        `UPDATE task_assignments SET status = 'iptal' WHERE task_id = $1 AND status NOT IN ('tamamlandı', 'onay_bekleniyor')`,
+        [task.id]
+      );
 
       // Eski embed'i güncelle (butonları kaldır, dönem bitti mesajı)
       if (task.message_id && task.channel_id && guild) {
@@ -618,6 +622,27 @@ async function checkRecurringTasks(client) {
           }
         }
       }
+
+      // Log kanalına dönem kapandı raporu gönder
+      const allAssignments = await getTaskProgress(task.id);
+      const completedA  = allAssignments.filter(a => a.status === 'tamamlandı');
+      const missedA     = allAssignments.filter(a => a.status === 'iptal');
+      const pendingA    = allAssignments.filter(a => a.status === 'onay_bekleniyor');
+      const fmtUsers = list => list.length ? list.map(a => `<@${a.user_id}>`).join('\n').slice(0, 1020) : '*Yok*';
+      const recLabel = { gunluk: 'Günlük', haftalik: 'Haftalık', aylik: 'Aylık' }[task.recurrence] ?? task.recurrence;
+      const periodEmbed = new EmbedBuilder()
+        .setColor(missedA.length ? 0xff9900 : 0x44cc88)
+        .setTitle(`🔁 ${recLabel} Dönem Kapandı — #${task.id} ${task.title}`)
+        .setDescription(`Yeni dönem görevi **#${newId}** olarak oluşturuldu.`)
+        .addFields(
+          { name: `✅ Tamamlayanlar (${completedA.length})`, value: fmtUsers(completedA), inline: true },
+          { name: `❌ Tamamlayamayanlar (${missedA.length})`, value: fmtUsers(missedA), inline: true },
+        )
+        .setTimestamp();
+      if (pendingA.length) {
+        periodEmbed.addFields({ name: `⏳ Onay Bekleyenler (${pendingA.length})`, value: fmtUsers(pendingA), inline: false });
+      }
+      sendTaskLog(client, guildId, periodEmbed).catch(() => {});
 
       console.log(`🔁 Tekrarlayan görev #${task.id} → yeni #${newId} oluşturuldu`);
     } catch (err) {
