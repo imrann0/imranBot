@@ -793,6 +793,89 @@ async function checkDeadlines(client) {
         console.error(`[checkDeadlines] #${task.id}:`, err.message);
       }
     }
+
+    // ── Süresi dolmuş görevleri kapat ────────────────────────
+    // Flood önleme: ilk çalışmada max 5 görev kapat
+    const expired = await pool.query(`
+      SELECT t.*
+      FROM tasks t
+      WHERE t.due_date IS NOT NULL
+        AND t.recurrence IS NULL
+        AND t.status NOT IN ('tamamlandı', 'iptal')
+        AND t.due_date ~ '^\\d{2}\\.\\d{2}\\.\\d{4}$'
+        AND TO_DATE(t.due_date, 'DD.MM.YYYY') < CURRENT_DATE
+      ORDER BY TO_DATE(t.due_date, 'DD.MM.YYYY') DESC
+      LIMIT 5
+    `);
+
+    for (const task of expired.rows) {
+      try {
+        const guildId = task.guild_id;
+        const assignments = await getTaskProgress(task.id);
+        const completed      = assignments.filter(a => a.status === 'tamamlandı');
+        const pendingApproval = assignments.filter(a => a.status === 'onay_bekleniyor');
+        const missed         = assignments.filter(a => !['tamamlandı', 'onay_bekleniyor'].includes(a.status));
+
+        // Sadece bekliyor/devam olanları iptal et — onay bekleyenler dokunulmaz
+        if (missed.length) {
+          await pool.query(
+            `UPDATE task_assignments SET status = 'iptal'
+             WHERE task_id = $1 AND status NOT IN ('tamamlandı', 'onay_bekleniyor')`,
+            [task.id]
+          );
+        }
+
+        // Görevi kapat
+        await pool.query(
+          `UPDATE tasks SET status = 'tamamlandı', updated_at = NOW() WHERE id = $1`,
+          [task.id]
+        );
+
+        // Görev kanalı embed güncelle
+        if (task.message_id && task.channel_id) {
+          const ch = client.guilds.cache.get(guildId)?.channels.cache.get(task.channel_id);
+          if (ch) {
+            const msg = await ch.messages.fetch(task.message_id).catch(() => null);
+            if (msg) {
+              const updatedTask = await getTask(guildId, task.id);
+              const updEmbed = await buildTaskEmbed(updatedTask);
+              await msg.edit({ content: `✅ **Bu görev tamamlandı.**`, embeds: [updEmbed], components: [] }).catch(() => {});
+            }
+          }
+        }
+
+        // Log kanalına rapor gönder
+        const logChId = await getConfig(guildId, 'task_log_channel');
+        if (!logChId) continue;
+        const logCh = client.channels.cache.get(logChId);
+        if (!logCh) continue;
+
+        const fmt = list => list.length ? list.map(a => `<@${a.user_id}>`).join('\n').slice(0, 1020) : '*Yok*';
+
+        const reportEmbed = new EmbedBuilder()
+          .setColor(missed.length ? 0xff9900 : 0x44cc88)
+          .setTitle(`📋 Görev Süresi Doldu — #${task.id} ${task.title}`)
+          .setDescription(`Bitiş tarihi **${task.due_date}** geçtiği için görev otomatik kapatıldı.${task.is_mandatory ? '\n⚠️ Zorunlu görev — tamamlayamayanların streak\'i etkilendi.' : ''}`)
+          .addFields(
+            { name: `✅ Tamamlayanlar (${completed.length})`, value: fmt(completed), inline: true },
+            { name: `❌ Tamamlayamayanlar (${missed.length})`, value: fmt(missed), inline: true },
+          )
+          .setTimestamp();
+
+        if (pendingApproval.length) {
+          reportEmbed.addFields({
+            name: `⏳ Onay Bekleyenler (${pendingApproval.length})`,
+            value: fmt(pendingApproval) + '\n*Süresi doldu ama onay bekliyor — admin kararı gerekli.*',
+            inline: false,
+          });
+        }
+
+        await logCh.send({ embeds: [reportEmbed] });
+        console.log(`📋 Görev #${task.id} süresi doldu, kapatıldı.`);
+      } catch (err) {
+        console.error(`[checkDeadlines expire] #${task.id}:`, err.message);
+      }
+    }
   } catch (err) {
     console.error('[checkDeadlines]', err.message);
   }
